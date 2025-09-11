@@ -61,7 +61,7 @@ local function get_next_chat_filepath(dir_path, format)
 
 	for _, file in ipairs(dir_path:scandir()) do
 		local filename = file:match("([^/]+)$")
-		local num = tonumber(filename:match("^chat_($d+)." .. format .. "$"))
+		local num = tonumber(filename:match("^chat_(%d+)." .. format .. "$"))
 		if num and num > max_num then
 			max_num = num
 		end

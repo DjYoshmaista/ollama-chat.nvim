@@ -102,4 +102,4 @@ function M.save_config(new_config)
 	end
 end
 
-return
+return M

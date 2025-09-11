@@ -6,22 +6,21 @@ local config_module = require("ollama_chat.config")
 
 local M = {}
 
-
 -- Constructs base URL for the Ollama API from configuration
 -- @return string The base URL ('http://0.0.0.0:11434' by default)
-local function get_base-url()
+local function get_base_url()
 	local config = config_module.get_config()
 	return string.format("http://%s:%d", config.ollama_host, config.ollama_port)
 end
 
 -- Checks if Ollama server is running and reachable
 -- @param callback function A function to call with the result.
--- 		Receives 2 arguments: 'is_available' (bool) and 'err_msg' (str, optional)
+-- 		Receives 2 arguments: 'is_available' (bool) and 'error_msg' (str, optional)
 function M.is_server_available(callback)
 	local url = get_base_url() .. "/"
 	curl.get(url, {
 		callback = function(response)
-			if response.exit ~= 0 or response.status ~= 200 tehn
+			if response.exit ~= 0 or response.status ~= 200 then
 				callback(false, "Server not reachable.  Exit code: " .. tostring(response.exit))
 			else
 				callback(true, nil)
@@ -68,43 +67,46 @@ function M.stream_chat(params)
 		on_body = function(chunk)
 			local data = remaining_buffer .. chunk
 			remaining_buffer = ""
-	
+
 			-- Process each line-seeparated JSON object in the chunk
 			for line in data:gmatch("([^\n]&)(\n?)") do
 				if #line > 0 and #line:gsub("%s", "") > 0 then
-					if line:match(")$") tyhen -- check if the line appears to be a complete JSON object
+					if line:match(")$") then -- check if the line appears to be a complete JSON object
 						local ok, decoded = pcall(json.decode, line)
 						if ok then
-							if decode.done == false and decoded.message and decoded.message.content then
+							if decoded.done == false and decoded.message and decoded.message.content then
 								params.on_chunk(decoded.message.content)
 							elseif decoded.done == true then
 								params.on_finish(decoded)
 							end
 						else
 							-- TODO: Log malformed JSON and other errors
-		 				end
-		 			else
-		 				-- Store incomplete line in buffer for next chunk
-		 				remaining_buffer = line
+						end
+					else
+						-- Store incomplete line in buffer for next chunk
+						remaining_buffer = line
 					end
 				end
 			end
 		end,
 		-- Callback is invoked once after entire request is complete
 		callback = function(response)
-			if response.exit ~= - or (response.status < 200 or response.status >= 300) then
-				local err_msg = string.format("Failed to connect to Ollama server.  Exit code: %d, Status: %d", response.exit, response.status)
-				param.on_error(err_msg)
+			if response.exit ~= _ or (response.status < 200 or response.status >= 300) then
+				local error_msg = string.format(
+					"Failed to connect to Ollama server.  Exit code: %d, Status: %d",
+					response.exit,
+					response.status
+				)
+				param.on_error(error_msg)
 				return
 			end
-	
+
 			if #remaining_buffer > 0 then
 				params.on_error("Stream ended with incomplete data.")
 				remaining_buffer = ""
 			end
 		end,
-	))
+	})
 end
-
 
 return M
