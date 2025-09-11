@@ -1,0 +1,12 @@
+ollama:
+  model: "qwen3:8b"
+  server:
+    host: "0.0.0.0"
+    port: 11434
+  context_window: 20480
+  temperature: 0.4
+
+history:
+  save_format:
+    - markdown
+    - plaintext

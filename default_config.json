@@ -1,0 +1,27 @@
+{
+  "ollama": {
+    "model": "qwen3:4b",
+    "server": {
+      "host": "localhost",
+      "port": 11434,
+      "protocol": "http"
+      },
+    "context_window": 16384,
+    "temperature": 0.7
+  },
+  "history": {
+    "save_format": ["markdown", "plaintext"],
+    "storage_path": "./data/chats",
+    "max_history_size": 10000
+  },
+  "ui": {
+    "window_width": 80,
+    "window_height": 12,
+    "position": "center"
+  },
+  "logging": {
+    "level": "info",
+    "file_path": "./logs/ollama_chat.log",
+    "max_file_size": "100MB"
+  }
+}
