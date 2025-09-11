@@ -12,4 +12,4 @@ command! OllamaChat lua require('ollama_chat').open_chat()
 nnoremap <leader>oc :OllamaChat<CR>
 
 " Autocommands for setup
-autocmd VimEnter * lua require('ollama-chat').setup()
+autocmd VimEnter * lua require('ollama_chat').setup()

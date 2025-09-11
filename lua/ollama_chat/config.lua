@@ -32,7 +32,7 @@ local config = {
 -- Deeply merge two tables - values in 't2' will overwrite the values in 't1'
 -- @param t1 table the base table; @param t2 table the table to merge in; @return table the merged table
 local function deep_merge(t1, t2)
-	for k, v in pairs(tw) do
+	for k, v in pairs(t2) do
 		if type(v) == "table" and type(t1[k]) == "table" then
 			t1[k] = deep_merge(t1[k], v)
 		else
@@ -45,9 +45,9 @@ end
 -- Validates the configuration against a schema
 -- @param conf table -- The configuration table to validate
 -- @return boolean, string|nil True if valid, false and an error message if not
-local function validate_config(conf
+local function validate_config(conf)
 	-- TODO: Implement schema validation
-	-- Could involve checking for required keys, correct value types, and valid enum values (log levels, history formats, etc) -- assumes config is valid currently
+	-- Could involve checking for required keys, correct value types, and valid enum values (log levels, history formats, etc), assumes config is valid currently
 	if not conf.ollama_host or type(conf.ollama_host) ~= "string" then
 		return false, "Invalid or missing 'ollama_host'"
 	end
@@ -74,14 +74,14 @@ end
 
 -- Returns the current configuration table
 -- @return table The current config
-funcction M.get_config()
+function M.get_config()
 	return config
 end
 
 -- Saves the current config to the user's config file
 -- Only necessary if config is not managed via dotfiles
 -- @param new_config table The configuration table to save
-function M.save_config(new-config)
+function M.save_config(new_config)
 	-- Path should point to where user-specific overrides are stored
 	local user_config_path = Path:new(vim.fn.stdpath("config"), "user_config.json")
 
@@ -103,4 +103,3 @@ function M.save_config(new-config)
 end
 
 return
-

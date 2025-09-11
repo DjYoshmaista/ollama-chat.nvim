@@ -45,7 +45,7 @@ function M.get_api_url(endpoint)
 	local host = ollama_config.host:gsub("/$", "")
 	local api_path = "/api/" .. endpoint:gsub("^/", "")
 
-	return string.format("%s:%s%s", host, ollama_config.port, api_paht)
+	return string.format("%s:%s%s", host, ollama_config.port, api_path)
 end
 
 -- A helper to create a styled floating window - This abstracts the common setup for floating windows in the plugin

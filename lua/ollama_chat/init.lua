@@ -3,21 +3,19 @@ local M = {}
 
 function M.setup(config)
 	-- Init logging system
-	require("ollama-chat.logger").setup()
+	require("ollama_chat.logger").setup()
 
 	-- Load configuration
 	local config_manager = require("ollama_chat.config")
-	local cfg = config_manager.load_config(config)
-
-	-- Initialize components
-	require("ollama_chat.client").setup(cfg.ollama)
-	require("ollama_chat.history").setup(cfg.history)
-
-	-- Setup UI components
-	require("ollama_chat.chat").setup(cfg.ui)
+	config_manager.setup(config)
+	local cfg = config_manager.get_config()
 
 	-- Log successful attempt
 	require("ollama_chat.logger").info("Ollama Chat plugin initialized!")
+end
+
+function M.open_chat()
+	require("ollama_chat.chat").open()
 end
 
 return M

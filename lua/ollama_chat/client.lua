@@ -2,7 +2,7 @@
 
 local curl = require("plenary.curl")
 local json = require("plenary.json")
-lcoal config_module = require("ollama_chat.config")
+local config_module = require("ollama_chat.config")
 
 local M = {}
 
@@ -76,7 +76,7 @@ function M.stream_chat(params)
 						local ok, decoded = pcall(json.decode, line)
 						if ok then
 							if decode.done == false and decoded.message and decoded.message.content then
-								params.on_hcunk(decoded.message.content)
+								params.on_chunk(decoded.message.content)
 							elseif decoded.done == true then
 								params.on_finish(decoded)
 							end
