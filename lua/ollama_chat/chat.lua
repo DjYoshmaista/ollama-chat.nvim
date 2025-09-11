@@ -181,6 +181,13 @@ local function create_input_window(parent_win_id)
 		"<Cmd>lua require('ollama_chat.chat').close()<CR>",
 		{ noremap = true, silent = true }
 	)
+	api.nvim_buf_set_keymap(
+		state.input_buf,
+		"i",
+		"<CR>",
+		"<Cmd>lua require('ollama_chat.chat').send_input()<CR>",
+		{ noremap = true, silent = true }
+	)
 end
 
 -- Creates and configures the main chat display window
@@ -230,7 +237,7 @@ function M.close()
 end
 
 -- Internal function exposed for keymap exectuion
-function M.__send_input()
+function M.send_input()
 	send_current_input()
 end
 
