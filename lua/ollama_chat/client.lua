@@ -91,13 +91,13 @@ function M.stream_chat(params)
 		end,
 		-- Callback is invoked once after entire request is complete
 		callback = function(response)
-			if response.exit ~= _ or (response.status < 200 or response.status >= 300) then
+			if response.exit ~= 0 or (response.status < 200 or response.status >= 300) then
 				local error_msg = string.format(
 					"Failed to connect to Ollama server.  Exit code: %d, Status: %d",
 					response.exit,
 					response.status
 				)
-				param.on_error(error_msg)
+				params.on_error(error_msg)
 				return
 			end
 

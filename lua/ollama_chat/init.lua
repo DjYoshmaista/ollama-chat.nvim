@@ -11,13 +11,12 @@ function M.setup(config)
 		)
 	end
 
-	-- Init logging system
-	require("ollama_chat.logger").setup()
-
 	-- Load configuration
 	local config_manager = require("ollama_chat.config")
 	config_manager.setup(config)
 	local cfg = config_manager.get_config()
+
+	require("ollama_chat.client")
 
 	-- Log successful attempt
 	require("ollama_chat.logger").info("Ollama Chat plugin initialized!")

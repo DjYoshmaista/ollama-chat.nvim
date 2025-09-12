@@ -50,6 +50,8 @@ local function render_message(role, content)
 			return
 		end
 
+		api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
+
 		local header = string.format("--- %s ---", string.upper(role))
 		local lines = vim.split(content, "\n")
 
@@ -58,7 +60,6 @@ local function render_message(role, content)
 			api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, { "" })
 		end
 
-		api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
 		api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, { header })
 		api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, lines)
 		api.nvim_buf_set_option(state.chat_buf, "modifiable", false)

@@ -1,7 +1,6 @@
 -- logger.lua - A simple file-based logger for nvim-ollama-chat plugin: Provides a centralized method of logging messages at different severity levels (controlled by the plugin's configuration).  This is essential for debugging async operations and plugin behavior
 
 local Path = require("plenary.path")
-local config_module = require("ollama_chat.config")
 
 local M = {}
 
@@ -47,26 +46,18 @@ local function write_to_log(level_str, message)
 end
 
 -- Configures and initializes the logger based on the user's settings - This should be called once when the plugin is loaded
-function M.setup()
+function M.setup(logging_config)
 	-- Use protected call to avoid errors if config is malformed
-	local ok, config = pcall(config_module.get_config)
-	if not ok then
+	if not logging_config or not logging_config.enabled then
 		-- Silently fail - Logger remains disabled
-		return
-	elseif not config.logging then
-		vim.notify(
-			"OllamaClient Logger: Logging not configured and/or not enabled: " .. tostring(err),
-			vim.log_levels.ERROR
-		)
 		return
 	end
 
-	local logging_config = config.logging
 	state.is_enabled = logging_config.enabled
 	state.log_level_num = log_levels[string.upper(logging_config.level)] or log_levels.INFO
 
 	if state.is_enabled then
-		state.log_file_path = Path:new(logging_config.filepath)
+		state.log_file_path = Path:new(logging_config.path)
 		-- Ensure the dir for the log file exists
 		local parent_dir = state.log_file_path:parent()
 		if not parent_dir:exists() then

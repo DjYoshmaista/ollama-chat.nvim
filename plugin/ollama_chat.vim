@@ -14,4 +14,4 @@ nnoremap <leader>oc :OllamaChat<CR>
 nnoremap <leader>ocs :OllamaChatSend<CR>
 
 " Autocommands for setup
-autocmd VimEnter * lua require('ollama_chat').setup()
+" autocmd VimEnter * lua require('ollama_chat').setup()
