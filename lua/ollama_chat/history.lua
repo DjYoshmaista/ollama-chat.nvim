@@ -57,7 +57,7 @@ end
 local function get_next_chat_filepath(dir_path, format)
 	local max_num = 0
 	-- Ensure dir exists before scanning
-	dir_path:mkdirp()
+	dir_path:mkdir({ parents = true })
 
 	for _, file in ipairs(dir_path:scandir()) do
 		local filename = file:match("([^/]+)$")

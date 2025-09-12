@@ -1,5 +1,5 @@
 ollama:
-  model: "qwen3:8b"
+  model: "gemma3n:e4b"
   server:
     host: "0.0.0.0"
     port: 11434

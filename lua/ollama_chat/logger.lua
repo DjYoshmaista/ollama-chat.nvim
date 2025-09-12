@@ -17,8 +17,8 @@ local log_levels = {
 -- Internal state for the logger
 local state = {
 	is_enabled = false,
-	log_level_num = log_levels.ERROR, -- Default to least verbose
-	log_file_path = nil,
+	log_level_num = log_levels.INFO, -- Default to least verbose
+	log_file_path = "data/ollama_chat/",
 }
 
 -- Writes a formatted message to the ocnfigured log file
@@ -34,13 +34,13 @@ local function write_to_log(level_str, message)
 	local formatted_message = string.format("[%s] [%s] - %s\n", timestamp, level_str, tostring(message))
 
 	-- Use a protected call for file I/O to prevent errors from crashing the plugin
-	local succes, err = pcall(function()
+	local success, err = pcall(function()
 		-- The 'a' flag appends to the file if it exists, or creates it if it doesn't
 		state.log_file_path:write(formatted_message, "a")
 	end)
 
 	if not success then
-		vim.notify("OllamaClient Logger: Failed to write to log file: " .. tostring(err), vim.log_levels.ERROR)
+		vim.notify("OllamaClient Logger: Failed to write to log file: " .. tostring(err), vim.log.levels.ERROR)
 		state.is_enabled = false -- Disable logger to prevent repeated errors
 	end
 end
@@ -50,19 +50,26 @@ function M.setup(logging_config)
 	-- Use protected call to avoid errors if config is malformed
 	if not logging_config or not logging_config.enabled then
 		-- Silently fail - Logger remains disabled
+		state.is_enabled = false
 		return
 	end
 
-	state.is_enabled = logging_config.enabled
+	state.is_enabled = true
 	state.log_level_num = log_levels[string.upper(logging_config.level)] or log_levels.INFO
 
-	if state.is_enabled then
-		state.log_file_path = Path:new(logging_config.path)
-		-- Ensure the dir for the log file exists
-		local parent_dir = state.log_file_path:parent()
-		if not parent_dir:exists() then
-			parent_dir:mkdirp()
-		end
+	local log_path_str = logging_config.path or logging_config.file_path
+	if not log_path_str then
+		vim.notify("OllamaChat Logger: no 'path' or 'file_path' found in logging config.", vim.log.levels.WARN)
+		state.is_enabled = false
+		return
+	end
+
+	local data_dir = Path:new(vim.fn.stdpath("data"), "ollama_chat")
+	state.log_file_path = data_dir:joinpath(log_path_str)
+
+	local parent_dir = state.log_file_path:parent()
+	if not parent_dir:exists() then
+		parent_dir:mkdir({ parents = true })
 	end
 end
 

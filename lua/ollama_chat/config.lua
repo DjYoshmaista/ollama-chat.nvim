@@ -2,8 +2,6 @@
 -- Handles configuration loading
 
 local Path = require("plenary.path")
-local json = require("plenary.json")
-
 local M = {}
 
 -- Suppoorted config formats: JSON, YAML, Python-like
@@ -23,7 +21,7 @@ local config = {
 		path = vim.fn.stdpath("data") .. "/ollama_chat/ollama_chat.log",
 	},
 	ui = {
-		chat_win_width = 80,
+		chat_win_width = 84,
 		show_icons = true,
 		border_style = "rounded", -- rounded, single, double, solid
 	},
@@ -48,12 +46,48 @@ end
 local function validate_config(conf)
 	-- TODO: Implement schema validation
 	-- Could involve checking for required keys, correct value types, and valid enum values (log levels, history formats, etc), assumes config is valid currently
+
+	-- Validate top-level keys
 	if not conf.ollama_host or type(conf.ollama_host) ~= "string" then
 		return false, "Invalid or missing 'ollama_host'"
 	end
 	if not conf.ollama_port or type(conf.ollama_port) ~= "number" then
 		return false, "Invalid or missing 'ollama_port'"
 	end
+	if not conf.default_model or type(conf.default_model) ~= "string" then
+		return false, "Invalid or missing 'default_model'"
+	end
+
+	-- Validate chat_history
+	if not conf.chat_history.enabled or type(conf.chat_history.enabled) ~= "boolean" then
+		return false, "Invalid or missing key or key type for 'chat_history' for key 'enabled'"
+	end
+	if not conf.chat_history.path or type(conf.chat_history.path) ~= "string" then
+		return false, "Invalid or missing value for 'chat_history' entry 'path'"
+	end
+	if not conf.chat_history.format or type(conf.chat_history.format) ~= "string" then
+		return false, "Invalid or missing value for 'chat_history' entry 'format'"
+	end
+
+	-- Validate logging
+	if not conf.logging.enabled or type(conf.logging.enabled) ~= "boolean" then
+		return false, "Invalid or missing value for 'logging' entry 'enabled'"
+	end
+	if not conf.logging.level or type(conf.logging.level) ~= "string" then
+		return false, "Invalid or missing value for 'logging' entry 'level'"
+	end
+	if not conf.logging.path or type(conf.logging.path) ~= "string" then
+		return false, "Invalid or missing value for 'logging' entry 'path'"
+	end
+
+	-- Validate UI
+	if not conf.ui.chat_win_width or type(conf.ui.chat_win_width) ~= "number" then
+		return false, "Invalid or missing value for 'ui' entry 'chat_win_width'"
+	end
+	if not conf.ui.border_style or type(conf.ui.border_style) ~= "string" then
+		return false, "Invalid or missing value for 'ui' entry 'border_style'"
+	end
+
 	return true, nil
 end
 
@@ -61,8 +95,57 @@ end
 -- @param user_opts table User-provided configuration options
 function M.setup(user_opts)
 	user_opts = user_opts or {}
-	config = deep_merge(config, user_opts)
 
+	-- Handle nested 'ollama' configuration from user's config file
+	if user_opts.ollama then
+		local ollama = user_opts.ollama
+		if ollama.server and type(ollama.server) == "table" then
+			config.ollama_host = ollama.server.host or config.ollama_host
+			config.ollama_port = ollama.server.port or config.ollama_port
+		end
+		if ollama.model then
+			config.default_model = ollama.model
+		end
+		-- TODO: Extract hyperparameters and set default values
+	end
+
+	-- Handle nested 'history' configuration
+	if user_opts.history then
+		local history = user_opts.history
+		if history.save_format then
+			-- Only one format supported for now.  Current action - take the first
+			if type(history.save_format) == "table" and #history.save_format > 0 then
+				config.chat_history.format = history.save_format[1]
+			elseif type(history.save_format) == "string" then
+				config.chat_history.format = history.save_format
+			end
+		end
+		if history.storage_path then
+			config.chat_history_path = history.storage_path
+		end
+	end
+
+	-- Handle nested 'ui' configuration
+	if user_opts.ui then
+		local ui = user_opts.ui
+		if ui.window_width then
+			config.ui.chat_win_width = ui.window_width
+		end
+	end
+
+	-- Handle nested 'logging' configuration
+	if user_opts.logging then
+		local log = user_opts.logging
+		if log.level then
+			config.logging.level = string.uppper(log.level) -- Ensure uppercase
+		end
+		if log.path then
+			config.logging_path = log.path
+		end
+	end
+
+	-- Merge any other direct top-level settings
+	config = deep_merge(config, user_opts)
 	local is_valid, err = validate_config(config)
 	if not is_valid then
 		vim.notify("OllamaChat: Invalid configuration - " .. err, vim.log.levels.ERROR)
@@ -86,10 +169,10 @@ function M.save_config(new_config)
 	local user_config_path = Path:new(vim.fn.stdpath("config"), "user_config.json")
 
 	-- Ensure the dir exists
-	user_config_path:dir():mkdirp()
+	user_config_path:dir():mkdir({ parents = true })
 
 	local success, err = pcall(function()
-		local config_string = json.encode(new_config, { pretty = true })
+		local config_string = vim.json.encode(new_config, { pretty = true })
 		user_config_path:write(config_string, "w")
 	end)
 

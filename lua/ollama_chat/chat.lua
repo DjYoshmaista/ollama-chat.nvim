@@ -89,8 +89,11 @@ local function render_stream_chunk(chunk)
 			api.nvim_buf_set_lines(state.chat_buf, last_line_idx, -1, false, { last_line .. new_lines[1] })
 		else
 			-- Handle multiple new lines in the chunk
+			-- First, append the first part to the existing last line
 			api.nvim_buf_set_lines(state.chat_buf, last_line_idx, -1, false, { last_line .. new_lines[1] })
+			-- Then, insert the remaining lines
 			table.remove(new_lines, 1)
+			-- If the last line just modified was empty, for instance continuing a previous line, add newline before next line
 			api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, new_lines)
 		end
 		api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
@@ -118,21 +121,29 @@ local function send_current_input()
 
 	-- Add user message to history and render it
 	table.insert(state.session_messages, { role = "user", content = prompt })
-
 	state.is_thinking = true
 
 	-- Prepare for assistant's response
 	render_message("user", prompt)
+
+	-- Insert placeholder for assistant's response, creating a clean space for streaming
+	api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
+	api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, { "--- ASSISTANT ---" })
+	api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, { "..." }) -- Placeholder
+	api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
+
 	local assistant_response_content = ""
 
 	client.stream_chat({
 		model = config_module.get_config().default_model,
 		messages = state.session_messages,
 		on_chunk = function(chunk)
+			print("CHUNK: [" .. chunk .. "]") -- Debug
 			if assistant_response_content == "" then -- First chunk
 				-- Overwrite the "..." placeholder
+				local last_line_idx = api.nvim_buf_line_count(state.chat_buf) - 1
 				api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
-				api.nvim_buf_set_lines(state.chat_buf, -2, -1, false, { "--- ASSISTANT ---", chunk })
+				api.nvim_buf_set_lines(state.chat_buf, last_line_idx, -1, -1, false, { "--- ASSISTANT ---", chunk })
 				api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
 			else
 				render_stream_chunk(chunk)

@@ -21,7 +21,7 @@
   },
   "logging": {
     "level": "info",
-    "file_path": "./logs/ollama_chat.log",
+    "path": "./logs/ollama_chat.log",
     "max_file_size": "100MB"
   }
 }

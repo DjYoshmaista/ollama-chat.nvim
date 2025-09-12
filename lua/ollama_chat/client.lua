@@ -1,7 +1,6 @@
 -- client.lua - lua client for ollama: Handles HTTP comm with local or remote Ollama server including streaming chat responses
 
 local curl = require("plenary.curl")
-local json = require("plenary.json")
 local config_module = require("ollama_chat.config")
 
 local M = {}
@@ -59,7 +58,7 @@ function M.stream_chat(params)
 	curl.request({
 		method = "POST",
 		url = url,
-		body = json.encode(body),
+		body = vim.json.encode(body),
 		headers = {
 			["Content-Type"] = "application/json",
 		},
@@ -69,26 +68,38 @@ function M.stream_chat(params)
 			remaining_buffer = ""
 
 			-- Process each line-seeparated JSON object in the chunk
-			for line in data:gmatch("([^\n]&)(\n?)") do
-				if #line > 0 and #line:gsub("%s", "") > 0 then
-					if line:match(")$") then -- check if the line appears to be a complete JSON object
-						local ok, decoded = pcall(json.decode, line)
-						if ok then
-							if decoded.done == false and decoded.message and decoded.message.content then
-								params.on_chunk(decoded.message.content)
-							elseif decoded.done == true then
-								params.on_finish(decoded)
-							end
-						else
-							-- TODO: Log malformed JSON and other errors
+			for line in data:gmatch("([^\n]*\n?") do
+				-- Remove trailing newline if present
+				line = line:gsub("\n$", "")
+				-- Skip empty lines
+				if #line == 0 then
+					goto continue
+				end
+
+				-- Check if line looks like a complete JSON object (starts with { ends with })
+				if line:match("^%s*{") and line:match("}%s*$") then -- check if the line appears to be a complete JSON object
+					local ok, decoded = pcall(vim.json.decode, line)
+					if ok then
+						-- Streaming chunk: message content
+						if decoded.done == false and decoded.message and decoded.message.content then
+							params.on_chunk(decoded.message.content)
+						-- Final message: stream ended
+						elseif decoded.done == true then
+							params.on_finish(decoded)
 						end
 					else
-						-- Store incomplete line in buffer for next chunk
-						remaining_buffer = line
+						-- TODO: Log malformed JSON and other errors
+						vim.notify("OllamaChat: Malformed JSON line: " .. line, vim.log.levels.WARN)
 					end
+				else
+					-- Store incomplete line in buffer for next chunk
+					remaining_buffer = line
 				end
+
+				::continue::
 			end
 		end,
+
 		-- Callback is invoked once after entire request is complete
 		callback = function(response)
 			if response.exit ~= 0 or (response.status < 200 or response.status >= 300) then
@@ -102,7 +113,7 @@ function M.stream_chat(params)
 			end
 
 			if #remaining_buffer > 0 then
-				params.on_error("Stream ended with incomplete data.")
+				params.on_error("Stream ended with incomplete data:" .. remaining_buffer)
 				remaining_buffer = ""
 			end
 		end,
