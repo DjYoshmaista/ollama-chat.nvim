@@ -17,8 +17,8 @@ local log_levels = {
 -- Internal state for the logger
 local state = {
 	is_enabled = false,
-	log_level_num = log_levels.INFO, -- Default to least verbose
-	log_file_path = "data/ollama_chat/",
+	log_level_num = log_levels.INFO, -- Default to INFO level
+	log_file_path = nil,
 }
 
 -- Writes a formatted message to the ocnfigured log file
@@ -55,22 +55,33 @@ function M.setup(logging_config)
 	end
 
 	state.is_enabled = true
-	state.log_level_num = log_levels[string.upper(logging_config.level)] or log_levels.INFO
 
-	local log_path_str = logging_config.path or logging_config.file_path
+	local level_upper = string.upper(logging_config.level or "INFO")
+	state.log_level_num = log_levels[level_upper] or log_levels.INFO
+
+	local log_path_str = logging_config.path
 	if not log_path_str then
 		vim.notify("OllamaChat Logger: no 'path' or 'file_path' found in logging config.", vim.log.levels.WARN)
 		state.is_enabled = false
 		return
 	end
 
-	local data_dir = Path:new(vim.fn.stdpath("data"), "ollama_chat")
-	state.log_file_path = data_dir:joinpath(log_path_str)
+	local expanded_path = vim.fn.expand(log_path_str)
+	state.log_file_path = Path:new(expanded_path)
 
 	local parent_dir = state.log_file_path:parent()
 	if not parent_dir:exists() then
-		parent_dir:mkdir({ parents = true })
+		local success, err = pcall(function()
+			parent_dir:mkdir({ parents = true })
+		end)
+		if not success then
+			vim.notify("OllamaChat Logger: Failed to create log directory: " .. tostring(err), vim.log.levels.ERROR)
+			state.is_enabled = false
+			return
+		end
 	end
+
+	M.info("Logger initialized successfully")
 end
 
 -- Logs a message with DEBUG severity

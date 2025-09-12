@@ -2,6 +2,7 @@
 -- Handles configuration loading
 
 local Path = require("plenary.path")
+local logger = require("ollama_chat.logger")
 local M = {}
 
 -- Suppoorted config formats: JSON, YAML, Python-like
@@ -12,13 +13,13 @@ local config = {
 	default_model = "qwen3:8b",
 	chat_history = {
 		enabled = true,
-		path = vim.fn.stdpath("data") .. "/ollama_chat/chats",
+		path = "~/ollama_chat_debug.log",
 		format = "md", -- md, json or txt
 	},
-	logging = {
+	log = {
 		enabled = true,
 		level = "INFO", -- DEBUG, INFO, WARN, CRITICAL, ERROR, EXCEPT
-		path = vim.fn.stdpath("data") .. "/ollama_chat/ollama_chat.log",
+		path = "~/ollama_chat_debug.log",
 	},
 	ui = {
 		chat_win_width = 84,
@@ -70,13 +71,13 @@ local function validate_config(conf)
 	end
 
 	-- Validate logging
-	if not conf.logging.enabled or type(conf.logging.enabled) ~= "boolean" then
+	if not conf.log.enabled or type(conf.logging.enabled) ~= "boolean" then
 		return false, "Invalid or missing value for 'logging' entry 'enabled'"
 	end
-	if not conf.logging.level or type(conf.logging.level) ~= "string" then
+	if not conf.log.level or type(conf.logging.level) ~= "string" then
 		return false, "Invalid or missing value for 'logging' entry 'level'"
 	end
-	if not conf.logging.path or type(conf.logging.path) ~= "string" then
+	if not conf.log.path or type(conf.log.path) ~= "string" then
 		return false, "Invalid or missing value for 'logging' entry 'path'"
 	end
 
@@ -103,9 +104,7 @@ function M.setup(user_opts)
 			config.ollama_host = ollama.server.host or config.ollama_host
 			config.ollama_port = ollama.server.port or config.ollama_port
 		end
-		if ollama.model then
-			config.default_model = ollama.model
-		end
+		config.default_model = ollama.model or config.default_model
 		-- TODO: Extract hyperparameters and set default values
 	end
 
@@ -121,7 +120,7 @@ function M.setup(user_opts)
 			end
 		end
 		if history.storage_path then
-			config.chat_history_path = history.storage_path
+			config.chat_history.path = history.storage_path
 		end
 	end
 
@@ -131,16 +130,19 @@ function M.setup(user_opts)
 		if ui.window_width then
 			config.ui.chat_win_width = ui.window_width
 		end
+		if ui.border_style then
+			config.ui.border_style = ui.border_style
+		end
 	end
 
 	-- Handle nested 'logging' configuration
 	if user_opts.logging then
 		local log = user_opts.logging
 		if log.level then
-			config.logging.level = string.uppper(log.level) -- Ensure uppercase
+			config.logging.level = string.upper(log.level) -- Ensure uppercase
 		end
 		if log.path then
-			config.logging_path = log.path
+			config.log.path = log.path
 		end
 	end
 
@@ -148,11 +150,11 @@ function M.setup(user_opts)
 	config = deep_merge(config, user_opts)
 	local is_valid, err = validate_config(config)
 	if not is_valid then
-		vim.notify("OllamaChat: Invalid configuration - " .. err, vim.log.levels.ERROR)
+		logger.error("OllamaChat: Invalid configuration - " .. err)
 		return
 	end
 
-	vim.notify("OllamaChat: Configuration loaded successfully.", vim.log.levels.INFO)
+	logger.info("OllamaChat: Configuration loaded successfully.")
 end
 
 -- Returns the current configuration table
@@ -179,9 +181,9 @@ function M.save_config(new_config)
 	if success then
 		-- Also update currently running config
 		config = new_config
-		vim.notify("OllamaChat: Configuration saved to " .. tostring(user_config_path))
+		logger.info("OllamaChat: Configuration saved to " .. tostring(user_config_path))
 	else
-		vim.notify("OllamaChat: Failed to save configuration " .. err, vim.log.levels.ERROR)
+		logger.error("OllamaChat: Failed to save configuration " .. err, vim.log.levels.ERROR)
 	end
 end
 

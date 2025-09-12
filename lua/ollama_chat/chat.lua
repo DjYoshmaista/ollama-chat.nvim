@@ -4,6 +4,7 @@
 local api = vim.api
 local config_module = require("ollama_chat.config")
 local client = require("ollama_chat.client")
+local logger = require("ollama_chat.logger")
 
 local M = {}
 
@@ -74,6 +75,7 @@ end
 local function render_stream_chunk(chunk)
 	vim.schedule(function()
 		if not (state.chat_buf and api.nvim_buf_is_valid(state.chat_buf)) then
+			vim.notify("render_stream_chunk: Invalid chat buffer!", vim.log.levels.ERROR)
 			return
 		end
 
@@ -138,7 +140,7 @@ local function send_current_input()
 		model = config_module.get_config().default_model,
 		messages = state.session_messages,
 		on_chunk = function(chunk)
-			print("CHUNK: [" .. chunk .. "]") -- Debug
+			vim.notify("ON_CHUNK CALLED WITH : [" .. chunk .. "]", vim.log.levels.INFO) -- Debug
 			if assistant_response_content == "" then -- First chunk
 				-- Overwrite the "..." placeholder
 				local last_line_idx = api.nvim_buf_line_count(state.chat_buf) - 1
@@ -229,7 +231,9 @@ end
 
 -- Public function to open the chat interface
 function M.open()
+	logger.info("Opening chat interface")
 	if state.chat_win and api.nvim_win_is_valid(state.chat_win) then
+		logger.info("Chat window already open, focusing input")
 		api.nvim_set_current_win(state.input_win)
 		return
 	end
@@ -250,6 +254,7 @@ end
 
 -- Internal function exposed for keymap exectuion
 function M.send_input()
+	logger.info("Send input triggered")
 	send_current_input()
 end
 

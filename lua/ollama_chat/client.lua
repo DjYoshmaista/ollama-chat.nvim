@@ -2,6 +2,7 @@
 
 local curl = require("plenary.curl")
 local config_module = require("ollama_chat.config")
+local logger = require("ollama_chat.logger")
 
 local M = {}
 
@@ -20,8 +21,10 @@ function M.is_server_available(callback)
 	curl.get(url, {
 		callback = function(response)
 			if response.exit ~= 0 or response.status ~= 200 then
+				logger.error("Ollama server not reachable.  Exit code: " .. tostring(response.exit))
 				callback(false, "Server not reachable.  Exit code: " .. tostring(response.exit))
 			else
+				logger.info("Ollama server available and reachable!")
 				callback(true, nil)
 			end
 		end,
@@ -41,6 +44,7 @@ function M.stream_chat(params)
 	-- Ensure required parameters are provided
 	if not (params.model and params.messages and params.on_chunk and params.on_finish and params.on_error) then
 		if params.on_error then
+			logger.error("stream_chat: Missing required parameters - model, messages, on_chunk, on_finish, on_error")
 			params.on_error("stream_chat: Missing required parameters (model, messages, on_chunk, on_finish, on_error)")
 		end
 		return
@@ -52,23 +56,27 @@ function M.stream_chat(params)
 		stream = true,
 	}
 
+	logger.debug("stream_chat: Body - %s" .. vim.inspect(body))
+
 	-- Buffer to hold incomplete data between chunks
 	local remaining_buffer = ""
 
 	curl.request({
 		method = "POST",
 		url = url,
-		body = vim.json.encode(body),
+		json = body,
 		headers = {
 			["Content-Type"] = "application/json",
 		},
 		-- Callback is invoked for each piece of data received from thes erver.
 		on_body = function(chunk)
+			logger.debug("RAW CHUNK RECEIVED: " .. tostring(chunk))
+
 			local data = remaining_buffer .. chunk
 			remaining_buffer = ""
 
 			-- Process each line-seeparated JSON object in the chunk
-			for line in data:gmatch("([^\n]*\n?") do
+			for line in data:gmatch("[^\n]*\n?") do
 				-- Remove trailing newline if present
 				line = line:gsub("\n$", "")
 				-- Skip empty lines
@@ -76,10 +84,13 @@ function M.stream_chat(params)
 					goto continue
 				end
 
+				logger.debug("PROCESSING LINE: " .. line)
+
 				-- Check if line looks like a complete JSON object (starts with { ends with })
 				if line:match("^%s*{") and line:match("}%s*$") then -- check if the line appears to be a complete JSON object
 					local ok, decoded = pcall(vim.json.decode, line)
 					if ok then
+						logger.debug("DECODED SUCCESSFULLY: " .. vim.inspect(decoded))
 						-- Streaming chunk: message content
 						if decoded.done == false and decoded.message and decoded.message.content then
 							params.on_chunk(decoded.message.content)
@@ -89,7 +100,7 @@ function M.stream_chat(params)
 						end
 					else
 						-- TODO: Log malformed JSON and other errors
-						vim.notify("OllamaChat: Malformed JSON line: " .. line, vim.log.levels.WARN)
+						logger.error("OllamaChat: Malformed JSON line: " .. line)
 					end
 				else
 					-- Store incomplete line in buffer for next chunk
@@ -106,13 +117,16 @@ function M.stream_chat(params)
 				local error_msg = string.format(
 					"Failed to connect to Ollama server.  Exit code: %d, Status: %d",
 					response.exit,
-					response.status
+					response.status,
+					response.body or "No body"
 				)
+				logger.error(error_msg)
 				params.on_error(error_msg)
 				return
 			end
 
 			if #remaining_buffer > 0 then
+				logger.error("Stream ended with incomplete data: " .. remaining_buffer)
 				params.on_error("Stream ended with incomplete data:" .. remaining_buffer)
 				remaining_buffer = ""
 			end

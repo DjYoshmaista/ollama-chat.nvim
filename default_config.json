@@ -20,8 +20,8 @@
     "position": "center"
   },
   "logging": {
-    "level": "info",
-    "path": "./logs/ollama_chat.log",
+    "level": "debug",
+    "path": "~/ollama_chat_debug.log",
     "max_file_size": "100MB"
   }
 }
