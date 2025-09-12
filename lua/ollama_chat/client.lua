@@ -56,7 +56,7 @@ function M.stream_chat(params)
 		stream = true,
 	}
 
-	logger.debug("stream_chat: Body - %s" .. vim.inspect(body))
+	logger.debug("stream_chat: Body - " .. vim.inspect(body))
 
 	-- Buffer to hold incomplete data between chunks
 	local remaining_buffer = ""

@@ -2,7 +2,6 @@
 -- Handles configuration loading
 
 local Path = require("plenary.path")
-local logger = require("ollama_chat.logger")
 local M = {}
 
 -- Suppoorted config formats: JSON, YAML, Python-like
@@ -60,7 +59,7 @@ local function validate_config(conf)
 	end
 
 	-- Validate chat_history
-	if not conf.chat_history.enabled or type(conf.chat_history.enabled) ~= "boolean" then
+	if conf.chat_history.enabled == nil or type(conf.chat_history.enabled) ~= "boolean" then
 		return false, "Invalid or missing key or key type for 'chat_history' for key 'enabled'"
 	end
 	if not conf.chat_history.path or type(conf.chat_history.path) ~= "string" then
@@ -71,10 +70,10 @@ local function validate_config(conf)
 	end
 
 	-- Validate logging
-	if not conf.log.enabled or type(conf.logging.enabled) ~= "boolean" then
+	if not conf.log.enabled or type(conf.log.enabled) ~= "boolean" then
 		return false, "Invalid or missing value for 'logging' entry 'enabled'"
 	end
-	if not conf.log.level or type(conf.logging.level) ~= "string" then
+	if not conf.log.level or type(conf.log.level) ~= "string" then
 		return false, "Invalid or missing value for 'logging' entry 'level'"
 	end
 	if not conf.log.path or type(conf.log.path) ~= "string" then
@@ -136,10 +135,10 @@ function M.setup(user_opts)
 	end
 
 	-- Handle nested 'logging' configuration
-	if user_opts.logging then
-		local log = user_opts.logging
+	if user_opts.log then
+		local log = user_opts.log
 		if log.level then
-			config.logging.level = string.upper(log.level) -- Ensure uppercase
+			config.log.level = string.upper(log.level) -- Ensure uppercase
 		end
 		if log.path then
 			config.log.path = log.path
@@ -150,11 +149,11 @@ function M.setup(user_opts)
 	config = deep_merge(config, user_opts)
 	local is_valid, err = validate_config(config)
 	if not is_valid then
-		logger.error("OllamaChat: Invalid configuration - " .. err)
+		vim.notify("OllamaChat: Invalid configuration - " .. err, vim.log.levels.ERROR)
 		return
 	end
 
-	logger.info("OllamaChat: Configuration loaded successfully.")
+	vim.notify("OllamaChat: Configuration loaded successfully.", vim.log.levels.info)
 end
 
 -- Returns the current configuration table
@@ -181,9 +180,9 @@ function M.save_config(new_config)
 	if success then
 		-- Also update currently running config
 		config = new_config
-		logger.info("OllamaChat: Configuration saved to " .. tostring(user_config_path))
+		vim.notify("OllamaChat: Configuration saved to " .. tostring(user_config_path), vim.log.levels.INFO)
 	else
-		logger.error("OllamaChat: Failed to save configuration " .. err, vim.log.levels.ERROR)
+		vim.notify("OllamaChat: Failed to save configuration " .. err, vim.log.levels.ERROR)
 	end
 end
 

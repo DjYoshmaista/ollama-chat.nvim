@@ -19,7 +19,7 @@
     "window_height": 12,
     "position": "center"
   },
-  "logging": {
+  "log": {
     "level": "debug",
     "path": "~/ollama_chat_debug.log",
     "max_file_size": "100MB"

@@ -145,7 +145,14 @@ local function send_current_input()
 				-- Overwrite the "..." placeholder
 				local last_line_idx = api.nvim_buf_line_count(state.chat_buf) - 1
 				api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
-				api.nvim_buf_set_lines(state.chat_buf, last_line_idx, -1, -1, false, { "--- ASSISTANT ---", chunk })
+				api.nvim_buf_set_lines(
+					state.chat_buf,
+					last_line_idx,
+					last_line_idx,
+					-1,
+					false,
+					{ "--- ASSISTANT ---", chunk }
+				)
 				api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
 			else
 				render_stream_chunk(chunk)

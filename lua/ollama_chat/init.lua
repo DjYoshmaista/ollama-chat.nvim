@@ -17,7 +17,7 @@ function M.setup(config)
 	local cfg = config_manager.get_config()
 
 	-- Setup logger
-	require("ollama_chat.logger").setup(cfg.logging)
+	require("ollama_chat.logger").setup(cfg.log)
 
 	-- Load other modules
 	require("ollama_chat.client")
