@@ -28,13 +28,6 @@ local config = {
 	},
 }
 
-function M.get_config()
-	if not cached_config then
-		cached_config = config
-	end
-	return cached_config
-end
-
 function M.invalidate_cache()
 	cached_config = nil
 end
@@ -193,7 +186,10 @@ end
 -- Returns the current configuration table
 -- @return table The current config
 function M.get_config()
-	return config
+	if not cached_config then
+		cached_config = config
+	end
+	return cached_config
 end
 
 -- Saves the current config to the user's config file

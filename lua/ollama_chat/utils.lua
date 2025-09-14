@@ -20,13 +20,15 @@ function M.notify(message, level, title)
 	local logger = require("ollama_chat.logger")
 
 	title = title or "Ollama Chat"
-	level = level or vim.log.levels.INFO
+	level = level or vim.log.levels.DEBUG
 
 	-- Log the notification message as well (debugging)
 	if level == vim.log.levels.ERROR then
 		logger.error(message)
 	elseif level == vim.log.levels.WARN then
 		logger.warn(message)
+	elseif level == vim.log.levels.DEBUG then
+		logger.debug(message)
 	else
 		logger.info(message)
 	end

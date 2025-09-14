@@ -6,7 +6,11 @@ local config_module = require("ollama_chat.config")
 local client = require("ollama_chat.client")
 local logger = require("ollama_chat.logger")
 
+logger.info("Ollama chat plugin initialized!")
+
 local M = {}
+
+logger.info("Ollama 'M' module initialized")
 
 -- Internal state to manage UI elements and conversation history
 local state = {
@@ -17,20 +21,25 @@ local state = {
 	session_messages = {}, -- Stores { role = "...", content = "..." }
 	is_thinking = false, -- Prevents sending new messages while waiting for a response
 }
+logger.info("Ollama state table initialized")
 
 -- Safely closes windows and deletes buffers
 local function close_chat_windows()
 	if state.chat_win and api.nvim_win_is_valid(state.chat_win) then
 		api.nvim_win_close(state.chat_win, true)
+		logger.info("Ollama state 'chat_win' initialized")
 	end
 	if state.input_win and api.nvim_win_is_valid(state.input_win) then
 		api.nvim_win_close(state.input_win, true)
+		logger.info("Ollama state 'input_win' initialized")
 	end
 	if state.chat_buf and api.nvim_buf_is_valid(state.chat_buf) then
 		api.nvim_buf_delete(state.chat_buf, { force = true })
+		logger.info("Ollama state 'chat_buf' initialized")
 	end
 	if state.input_buf and api.nvim_buf_is_valid(state.input_buf) then
 		api.nvim_buf_delete(state.input_buf, { force = true })
+		logger.info("Ollama stat 'input_buf' initialized")
 	end
 
 	-- Reset state
@@ -40,18 +49,22 @@ local function close_chat_windows()
 	state.input_win = nil
 	state.session_messages = {}
 	state.is_thinking = false
+	logger.info("Ollama states reset.  Chat window closed.")
 end
 
 -- Appends a message to the chat buffer
 -- 	@param role string "user" or "assistant"
 -- @	param content string - The message content
 local function render_message(role, content)
+	logger.info("Appending message to the chat buffer.  Message: " .. content)
 	vim.schedule(function()
 		if not (state.chat_buf and api.nvim_buf_is_valid(state.chat_buf)) then
+			logger.info("State chat_buf or nvim_buf_is_valid not true.")
 			return
 		end
 
 		api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
+		logger.info("State 'chat_buf' set to 'modifiable'")
 
 		local header = string.format("--- %s ---", string.upper(role))
 		local lines = vim.split(content, "\n")
@@ -59,11 +72,15 @@ local function render_message(role, content)
 		-- Add a blank line for spacing if buffer is not empty
 		if api.nvim_buf_line_count(state.chat_buf) > 1 then
 			api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, { "" })
+			logger.debug("chat_buf value currently: " .. state.chat_buf)
 		end
 
 		api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, { header })
+		logger.debug("chat_buf state changed.  Current value: " .. state.chat_buf)
 		api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, lines)
+		logger.debug("chat_buf state changed.  Current value: " .. state.chat_buf)
 		api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
+		logger.debug("chat_buf state changed to no longer be modifiable")
 
 		-- Auto-scroll to the bottom
 		api.nvim_win_set_cursor(state.chat_win, { api.nvim_buf_line_count(state.chat_buf), 0 })
@@ -91,9 +108,11 @@ end
 -- Appends a streaming chunk of context to the last message in the chat buffer
 -- 	@param chunk string - The content chunk from the stream
 local function render_stream_chunk(chunk)
+	logger.info("Rendering stream chunk" .. chunk)
 	vim.schedule(function()
 		if not (state.chat_buf and api.nvim_buf_is_valid(state.chat_buf)) then
 			vim.notify("render_stream_chunk: Invalid chat buffer!", vim.log.levels.ERROR)
+			logger.info("render_stream_chunk: Invalid chat buffer!")
 			return
 		end
 
@@ -211,14 +230,14 @@ local function create_input_window(parent_win_id)
 		state.input_buf,
 		"n",
 		"q",
-		"<Cmd>lua require('ollama_chat.chat').close()<CR>",
+		"<Cmd>lua require'ollama_chat.chat'.close()<CR>",
 		{ noremap = true, silent = true }
 	)
 	api.nvim_buf_set_keymap(
 		state.input_buf,
 		"i",
 		"<CR>",
-		"<Cmd>lua require('ollama_chat.chat').send_input()<CR>",
+		"<Cmd>lua require'ollama_chat.chat'.send_input()<CR>",
 		{ noremap = true, silent = true }
 	)
 end
@@ -250,9 +269,9 @@ end
 
 -- Public function to open the chat interface
 function M.open()
-	logger.INFO("Opening chat interface")
+	logger.info("Opening chat interface")
 	if state.chat_win and api.nvim_win_is_valid(state.chat_win) then
-		logger.INFO("Chat window already open, focusing input")
+		logger.info("Chat window already open, focusing input")
 		api.nvim_set_current_win(state.input_win)
 		return
 	end

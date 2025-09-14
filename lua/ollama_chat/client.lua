@@ -22,10 +22,10 @@ function M.is_server_available(callback)
 	curl.get(url, {
 		callback = function(response)
 			if response.exit ~= 0 or response.status ~= 200 then
-				logger.ERROR("Ollama server not reachable.  Exit code: " .. tostring(response.exit))
+				logger.error("Ollama server not reachable.  Exit code: " .. tostring(response.exit))
 				callback(false, "Server not reachable.  Exit code: " .. tostring(response.exit))
 			else
-				logger.INFO("Ollama server available and reachable!")
+				logger.info("Ollama server available and reachable!")
 				callback(true, nil)
 			end
 		end,
@@ -53,7 +53,7 @@ local function process_stream_data(data, on_chunk, on_finish, on_error)
 						on_finish(decoded)
 					end
 				else
-					logger.ERROR("Failed to decode JSON: " .. line)
+					logger.error("Failed to decode JSON: " .. line)
 				end
 			end
 		end
@@ -69,12 +69,11 @@ end
 -- 	- on_error (function): Callback for any errors - Receives an error message (string)
 function M.stream_chat(params)
 	local url = get_base_url() .. "/api/chat"
-	local Job = require("plenary.job")
 
 	-- Ensure required parameters are provided
 	if not (params.model and params.messages and params.on_chunk and params.on_finish and params.on_error) then
 		if params.on_error then
-			logger.ERROR("stream_chat: Missing required parameters - model, messages, on_chunk, on_finish, on_error")
+			logger.error("stream_chat: Missing required parameters - model, messages, on_chunk, on_finish, on_error")
 			params.on_error("stream_chat: Missing required parameters (model, messages, on_chunk, on_finish, on_error)")
 		end
 		return
@@ -88,12 +87,11 @@ function M.stream_chat(params)
 
 	-- Manually encode the table into a JSON string
 	local body_json = vim.json.encode(body_tbl)
-	logger.INFO("stream_chat: Body - " .. body_json)
+	logger.info("stream_chat: Body - " .. body_json)
 
 	-- Create an instance of the stream processor using the existing helper function
 	local process_chunk = process_stream_data(nil, params.on_chunk, params.on_finish, params.on_error)
-
-	Job.new({
+	Job:new({
 		command = "curl",
 		args = {
 			"-X",
@@ -103,29 +101,17 @@ function M.stream_chat(params)
 			"Content-Type: application/json",
 			"-d",
 			body_json,
-			"--no-buffer",
+			"--no-buffer", -- This flag is CRUCIAL for streaming responses
 		},
-		-- on_stdout is called for each piece of data from the stream
-		on_stdout = function(err, data)
-			if err then
-				logger.ERROR("Error on stdout: " .. tostring(err))
-				params.on_error("Error receiving data: " .. tostring(err))
-				return
-			end
+		on_stdout = function(data)
 			if data and data ~= "" then
-				logger.INFO("RAW CHUNK RECEIVED: " .. tostring(data))
+				logger.info("RAW CHUNK RECEIVED: " .. tostring(data))
 				process_chunk(data)
 			end
 		end,
-		-- on_stderr is called if the curl command itself produces errors
-		on_stderr = function(err, data)
-			if err then
-				logger.ERROR("Error on stderr: " .. tostring(err))
-				params.on_error("Error during request: " .. tostring(err))
-				return
-			end
+		on_stderr = function(data)
 			if data and data ~= "" then
-				logger.ERROR("curl stderr: " .. data)
+				logger.error("curl stderr: " .. data)
 				params.on_error("Request Error: " .. data)
 			end
 		end,
