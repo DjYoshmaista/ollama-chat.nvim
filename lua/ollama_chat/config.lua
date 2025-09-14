@@ -3,6 +3,7 @@
 
 local Path = require("plenary.path")
 local M = {}
+local cached_config = nil
 
 -- Suppoorted config formats: JSON, YAML, Python-like
 -- Holds the merged, final configuration - initialized with some defaults in case setup() isn't called
@@ -27,6 +28,17 @@ local config = {
 	},
 }
 
+function M.get_config()
+	if not cached_config then
+		cached_config = config
+	end
+	return cached_config
+end
+
+function M.invalidate_cache()
+	cached_config = nil
+end
+
 -- Deeply merge two tables - values in 't2' will overwrite the values in 't1'
 -- @param t1 table the base table; @param t2 table the table to merge in; @return table the merged table
 local function deep_merge(t1, t2)
@@ -38,6 +50,28 @@ local function deep_merge(t1, t2)
 		end
 	end
 	return t1
+end
+
+local config_schema = {
+	ollama_host = { type = "string", required = true },
+	ollama_port = { type = "number", required = true },
+	default_model = { type = "string", required = true },
+	chat_history = {
+		type = "table",
+		fields = {
+			enabled = { type = "boolean", required = true },
+			path = { type = "string", required = true },
+			format = { type = "string", required = true, enum = { "md", "json", "txt" } },
+		},
+	},
+}
+
+local function validate_against_schema(conf, schema, path)
+	path = path or ""
+	for key, rules in pairs(schema) do
+		local value = conf[key]
+		-- TODO: Validation logic using schema
+	end
 end
 
 -- Validates the configuration against a schema

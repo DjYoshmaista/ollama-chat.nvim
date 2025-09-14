@@ -25,6 +25,19 @@ local function format_as_markdown(messages)
 	return table.concat(lines, "\n")
 end
 
+function M.search_history(query)
+	local config = config_module.get_config().chat_history
+	local base_path = Path:new(config.path)
+	local results = {}
+
+	-- TODO: Add recursive search through saved chats
+	-- TODO: Return matching conversations
+end
+
+function M.load_previous_chats(chat_path)
+	-- TODO: Load and restore a previous conversation
+end
+
 -- Formats the session messages into a JSON string
 --  @param messages table - The list of message objects
 --  @return string|nil - The formatted JSON string, or nil on error

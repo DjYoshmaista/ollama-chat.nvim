@@ -31,6 +31,34 @@ function M.is_server_available(callback)
 	})
 end
 
+local function process_stream_data(data, on_chunk, on_finish, on_error)
+	local buffer = ""
+	return function(chunk)
+		buffer = buffer .. chunk
+		local lines = vim.split(buffer, "\n", { plain = true })
+
+		-- Keep the last potentially incomplete line in buffer
+		buffer = lines[#lines] or ""
+
+		for i = 1, #lines - 1 do
+			local line = lines[i]
+			if line ~= "" then
+				local ok, decoded = pcall(vim.json.decode, line)
+				if ok then
+					-- process decoded JSON
+					if decoded.message and decoded.message.content then
+						on_chunk(decoded.message.content)
+					elseif decoded.done then
+						on_finish(decoded)
+					end
+				else
+					logger.error("Failed to decode JSON: " .. line)
+				end
+			end
+		end
+	end
+end
+
 -- Sends a chat request to the Ollama API and streams repsonse
 -- @param params table Parameters for the chat request:
 -- 	- model (string): Model name to use

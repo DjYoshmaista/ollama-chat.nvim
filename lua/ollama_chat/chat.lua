@@ -70,6 +70,24 @@ local function render_message(role, content)
 	end)
 end
 
+function M.set_model(model_name)
+	if not model_name then
+		-- Show model selector
+		local models = client.get_available_models(function(models)
+			vim.ui.select(models, {
+				prompt = "Select Ollama model:",
+			}, function(choice)
+				if choice then
+					state.current_model = choice
+					render_message("system", "Switched to model: " .. choice)
+				end
+			end)
+		end)
+	else
+		state.current_model = model_name
+	end
+end
+
 -- Appends a streaming chunk of context to the last message in the chat buffer
 -- 	@param chunk string - The content chunk from the stream
 local function render_stream_chunk(chunk)
@@ -254,6 +272,22 @@ function M.open()
 	)
 end
 
+-- Add context window management
+local function trim_context(messages, max_tokens)
+	local config = config_module.get_config()
+	local context_limit = config.ollama.context_window or 4096
+
+	-- Keep system messages and trim older messages if needed
+	if #messages > 20 then -- Arbitrary limit; make configurable
+		local trimmed = { messages[1] } -- Keep system message if exists
+		for i = math.max(2, #messages - 18), #messages do
+			table.insert(trimmed, messages[i])
+		end
+		return trimmed
+	end
+	return messages
+end
+
 -- Public function to close the chat interface.
 function M.close()
 	close_chat_windows()
@@ -261,8 +295,20 @@ end
 
 -- Internal function exposed for keymap exectuion
 function M.send_input()
-	logger.info("Send input triggered")
-	send_current_input()
+	if state.is_thinking then
+		M.notify("Please wait for the current response..", vim.log.levels.WARN)
+		return
+	end
+
+	-- Check server availability first
+	client.is_server_available(function(available, error_msg)
+		if not availble then
+			render_message("error", "Ollama server is not available: " .. (error_msg or "Unknown error"))
+			return
+		end
+		-- Continue with sending input
+		send_current_input()
+	end)
 end
 
 return M
