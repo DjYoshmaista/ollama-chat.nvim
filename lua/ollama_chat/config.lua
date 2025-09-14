@@ -13,16 +13,16 @@ local config = {
 	default_model = "qwen3:8b",
 	chat_history = {
 		enabled = true,
-		path = "~/ollama_chat_debug.log",
+		path = "/home/yosh/ollama_chat.log",
 		format = "md", -- md, json or txt
 	},
 	log = {
 		enabled = true,
-		level = "INFO", -- DEBUG, INFO, WARN, CRITICAL, ERROR, EXCEPT
-		path = "~/ollama_chat_debug.log",
+		level = "DEBUG", -- DEBUG, INFO, WARN, CRITICAL, ERROR, EXCEPT
+		path = "/home/yosh/ollama_chat_debug.log",
 	},
 	ui = {
-		chat_win_width = 84,
+		chat_win_width = 80,
 		show_icons = true,
 		border_style = "rounded", -- rounded, single, double, solid
 	},
@@ -187,7 +187,7 @@ function M.setup(user_opts)
 		return
 	end
 
-	vim.notify("OllamaChat: Configuration loaded successfully.", vim.log.levels.info)
+	vim.notify("OllamaChat: Configuration loaded successfully.", vim.log.levels.INFO)
 end
 
 -- Returns the current configuration table

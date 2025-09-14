@@ -163,14 +163,8 @@ local function send_current_input()
 				-- Overwrite the "..." placeholder
 				local last_line_idx = api.nvim_buf_line_count(state.chat_buf) - 1
 				api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
-				api.nvim_buf_set_lines(
-					state.chat_buf,
-					last_line_idx,
-					last_line_idx,
-					-1,
-					false,
-					{ "--- ASSISTANT ---", chunk }
-				)
+
+				api.nvim_buf_set_lines(state.chat_buf, last_line_idx, -1, false, { chunk })
 				api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
 			else
 				render_stream_chunk(chunk)
@@ -256,9 +250,9 @@ end
 
 -- Public function to open the chat interface
 function M.open()
-	logger.info("Opening chat interface")
+	logger.INFO("Opening chat interface")
 	if state.chat_win and api.nvim_win_is_valid(state.chat_win) then
-		logger.info("Chat window already open, focusing input")
+		logger.INFO("Chat window already open, focusing input")
 		api.nvim_set_current_win(state.input_win)
 		return
 	end
@@ -296,18 +290,20 @@ end
 -- Internal function exposed for keymap exectuion
 function M.send_input()
 	if state.is_thinking then
-		M.notify("Please wait for the current response..", vim.log.levels.WARN)
+		require("ollama_chat.utils").notify("Please wait for the current response..", vim.log.levels.WARN)
 		return
 	end
 
 	-- Check server availability first
 	client.is_server_available(function(available, error_msg)
-		if not availble then
+		if not available then
 			render_message("error", "Ollama server is not available: " .. (error_msg or "Unknown error"))
 			return
 		end
 		-- Continue with sending input
-		send_current_input()
+		vim.schedule(function()
+			send_current_input()
+		end)
 	end)
 end
 

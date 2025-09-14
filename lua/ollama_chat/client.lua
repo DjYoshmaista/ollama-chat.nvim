@@ -1,6 +1,7 @@
 -- client.lua - lua client for ollama: Handles HTTP comm with local or remote Ollama server including streaming chat responses
 
 local curl = require("plenary.curl")
+local Job = require("plenary.job")
 local config_module = require("ollama_chat.config")
 local logger = require("ollama_chat.logger")
 
@@ -21,10 +22,10 @@ function M.is_server_available(callback)
 	curl.get(url, {
 		callback = function(response)
 			if response.exit ~= 0 or response.status ~= 200 then
-				logger.error("Ollama server not reachable.  Exit code: " .. tostring(response.exit))
+				logger.ERROR("Ollama server not reachable.  Exit code: " .. tostring(response.exit))
 				callback(false, "Server not reachable.  Exit code: " .. tostring(response.exit))
 			else
-				logger.info("Ollama server available and reachable!")
+				logger.INFO("Ollama server available and reachable!")
 				callback(true, nil)
 			end
 		end,
@@ -52,7 +53,7 @@ local function process_stream_data(data, on_chunk, on_finish, on_error)
 						on_finish(decoded)
 					end
 				else
-					logger.error("Failed to decode JSON: " .. line)
+					logger.ERROR("Failed to decode JSON: " .. line)
 				end
 			end
 		end
@@ -68,98 +69,67 @@ end
 -- 	- on_error (function): Callback for any errors - Receives an error message (string)
 function M.stream_chat(params)
 	local url = get_base_url() .. "/api/chat"
+	local Job = require("plenary.job")
 
 	-- Ensure required parameters are provided
 	if not (params.model and params.messages and params.on_chunk and params.on_finish and params.on_error) then
 		if params.on_error then
-			logger.error("stream_chat: Missing required parameters - model, messages, on_chunk, on_finish, on_error")
+			logger.ERROR("stream_chat: Missing required parameters - model, messages, on_chunk, on_finish, on_error")
 			params.on_error("stream_chat: Missing required parameters (model, messages, on_chunk, on_finish, on_error)")
 		end
 		return
 	end
 
-	local body = {
+	local body_tbl = {
 		model = params.model,
 		messages = params.messages,
 		stream = true,
 	}
 
-	logger.debug("stream_chat: Body - " .. vim.inspect(body))
+	-- Manually encode the table into a JSON string
+	local body_json = vim.json.encode(body_tbl)
+	logger.INFO("stream_chat: Body - " .. body_json)
 
-	-- Buffer to hold incomplete data between chunks
-	local remaining_buffer = ""
+	-- Create an instance of the stream processor using the existing helper function
+	local process_chunk = process_stream_data(nil, params.on_chunk, params.on_finish, params.on_error)
 
-	curl.request({
-		method = "POST",
-		url = url,
-		json = body,
-		headers = {
-			["Content-Type"] = "application/json",
+	Job.new({
+		command = "curl",
+		args = {
+			"-X",
+			"POST",
+			url,
+			"-H",
+			"Content-Type: application/json",
+			"-d",
+			body_json,
+			"--no-buffer",
 		},
-		-- Callback is invoked for each piece of data received from thes erver.
-		on_body = function(chunk)
-			logger.debug("RAW CHUNK RECEIVED: " .. tostring(chunk))
-
-			local data = remaining_buffer .. chunk
-			remaining_buffer = ""
-
-			-- Process each line-seeparated JSON object in the chunk
-			for line in data:gmatch("[^\n]*\n?") do
-				-- Remove trailing newline if present
-				line = line:gsub("\n$", "")
-				-- Skip empty lines
-				if #line == 0 then
-					goto continue
-				end
-
-				logger.debug("PROCESSING LINE: " .. line)
-
-				-- Check if line looks like a complete JSON object (starts with { ends with })
-				if line:match("^%s*{") and line:match("}%s*$") then -- check if the line appears to be a complete JSON object
-					local ok, decoded = pcall(vim.json.decode, line)
-					if ok then
-						logger.debug("DECODED SUCCESSFULLY: " .. vim.inspect(decoded))
-						-- Streaming chunk: message content
-						if decoded.done == false and decoded.message and decoded.message.content then
-							params.on_chunk(decoded.message.content)
-						-- Final message: stream ended
-						elseif decoded.done == true then
-							params.on_finish(decoded)
-						end
-					else
-						-- TODO: Log malformed JSON and other errors
-						logger.error("OllamaChat: Malformed JSON line: " .. line)
-					end
-				else
-					-- Store incomplete line in buffer for next chunk
-					remaining_buffer = line
-				end
-
-				::continue::
-			end
-		end,
-
-		-- Callback is invoked once after entire request is complete
-		callback = function(response)
-			if response.exit ~= 0 or (response.status < 200 or response.status >= 300) then
-				local error_msg = string.format(
-					"Failed to connect to Ollama server.  Exit code: %d, Status: %d",
-					response.exit,
-					response.status,
-					response.body or "No body"
-				)
-				logger.error(error_msg)
-				params.on_error(error_msg)
+		-- on_stdout is called for each piece of data from the stream
+		on_stdout = function(err, data)
+			if err then
+				logger.ERROR("Error on stdout: " .. tostring(err))
+				params.on_error("Error receiving data: " .. tostring(err))
 				return
 			end
-
-			if #remaining_buffer > 0 then
-				logger.error("Stream ended with incomplete data: " .. remaining_buffer)
-				params.on_error("Stream ended with incomplete data:" .. remaining_buffer)
-				remaining_buffer = ""
+			if data and data ~= "" then
+				logger.INFO("RAW CHUNK RECEIVED: " .. tostring(data))
+				process_chunk(data)
 			end
 		end,
-	})
+		-- on_stderr is called if the curl command itself produces errors
+		on_stderr = function(err, data)
+			if err then
+				logger.ERROR("Error on stderr: " .. tostring(err))
+				params.on_error("Error during request: " .. tostring(err))
+				return
+			end
+			if data and data ~= "" then
+				logger.ERROR("curl stderr: " .. data)
+				params.on_error("Request Error: " .. data)
+			end
+		end,
+	}):start()
 end
 
 return M
