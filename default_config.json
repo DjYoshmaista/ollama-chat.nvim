@@ -1,35 +1,41 @@
 {
-  "ollama": {
-    "model": "qwen3:4b",
-    "server": {
-      "host": "localhost",
-      "port": 11434,
-      "protocol": "http"
-      },
-    "context_window": 16384,
-    "temperature": 0.7
-  },
-  "history": {
-    "save_format": ["markdown", "plaintext"],
-    "storage_path": "./data/chats",
-    "max_history_size": 10000
-  },
-  "ui": {
-    "chat_win_width": 80,
-    "chat_win_height": 20,
-    "chat_win_pos": "center",
-    "input_win_height": 3,
-    "input_win_width": 80,
-    "window_gap": 1,
-    "border_style": "rounded",
-    "show_icons": true,
-    "start_in_insert_mode": true,
-    "auto_scroll": true,
-    "layout": "vertical"
-  },
-  "log": {
-    "level": "debug",
-    "path": "~/ollama_chat_debug.log",
-    "max_file_size": "100MB"
-  }
+    -- Ollama Server Configuration
+    "ollama" = {
+        "model" = "qwen3:4b", -- Default model for new chats
+        "server" = {
+            "host" = "0.0.0.0", -- Server hostname or IP
+            "port" = 11434,     -- Server port
+            "protocol"  = "http" -- Protocol (currently only http is used)
+        },
+        "context_window" = 16384, -- Not currently used for trimming, but reserved for future
+        "temperature" = 0.7,      -- Not currently passed to API, but reserved for future
+    },
+
+    -- Chat History & Persistence
+    "history" = {
+        "save_format" = { "markdown" }, -- Formats to save in. Currently only the first is used. 'markdown', 'json', and 'txt' are supported currently.
+        "storage_path" = "./data/chats", -- Directory where chats are saved
+        "max_history_size" = 10000, -- Not currently enforced
+    },
+
+    -- User Interface (UI) Configuration
+    "ui" = {
+        "chat_win_width" = 100, -- Width of the main chat window
+        "chat_win_height" = 25, -- Height of the main chat window
+        "chat_win_pos" = "bottom", -- Position: "center", "top", "bottom", or {row=5, col=10}
+        "input_win_height" = 5, -- Height of the input window
+        "input_win_width" = nil, -- Width of input window. Nil means it matches chat_win_width.
+        "window_gap" = 2, -- Gap (in lines/columns) between chat and input windows
+        "border_style" = "rounded", -- "rounded", "single", "double", "solid"
+        "show_icons" = true, -- Reserved for future use
+        "start_in_insert_mode" = true, -- Focus and enter insert mode in input on open
+        "auto_scroll" = true, -- Auto-scroll chat window to bottom on new messages
+        "layout" = "vertical", -- "vertical" (default) or "horizontal"
+    },
+
+    -- Logging Configuration
+    "log" = {
+        "level" = "debug", -- "debug", "info", "warn", "error"
+        "path" = "~/ollama_chat_debug.log", -- Path to the log file
+        "max_file_size" = "100MB", -- Not currently enforced
 }

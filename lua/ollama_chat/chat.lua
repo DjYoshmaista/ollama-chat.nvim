@@ -21,6 +21,8 @@ local state = {
 	session_messages = {}, -- Stores { role = "...", content = "..." }
 	is_thinking = false, -- Prevents sending new messages while waiting for a response
 	assistant_response_started = false,
+	windows_hidden = false, -- Track if windows are hidden
+	last_positions = nil, -- Store last window positions for restoration
 }
 logger.info("Ollama state table initialized")
 
@@ -117,7 +119,144 @@ local function close_chat_windows()
 	state.session_messages = {}
 	state.is_thinking = false
 	state.assistant_response_started = false
+	state.windows_hidden = false
+	state.last_positions = nil
 	logger.info("Ollama states reset.  Chat window closed.")
+	vim.notify("Ollama chat window closed!", vim.log.levels.INFO)
+end
+
+-- Hides windows without destroying buffers or rewriting conversation state
+local function hide_chat_windows()
+	if state.windows_hidden then
+		return
+	end
+
+	-- Store current positions for restoration
+	if state.chat_win and api.nvim_win_is_valid(state.chat_win) then
+		state.last_positions = calculate_window_pos()
+	end
+
+	-- Close windows but keep buffers
+	if state.chat_win and api.nvim_win_is_valid(state.chat_win) then
+		api.nvim_win_close(state.chat_win, true)
+		logger.info("Chat window hidden")
+	end
+	if state.input_win and api.nvim_win_is_valid(state.input_win) then
+		api.nvim_win_close(state.input_win, true)
+		logger.info("Input window hidden")
+	end
+
+	-- Clear window handles but keep buffers and conversation state
+	state.chat_win = nil
+	state.input_win = nil
+	state.windows_hidden = true
+end
+
+-- Setup key mappings for window management
+local function setup_window_keymaps()
+	-- Setup global key mappings for window management
+	local global_keymaps = {
+		-- Window resize mappings (Alt + = for vertical +2, Alt + - for veritical -2)
+		{ "n", "<M-=>", "<Cmd>lua require'ollama_chat.chat'.resize_chat_window(2, 0)<CR>" },
+		{ "n", "<M-->", "<Cmd>lua require'ollama_chat.chat'.resize_chat_window(-2, 0)<CR>" },
+		-- Horizontal resize (Alt + Shift + = for horizontal +2, Alt + Shift + - for horizontal -2)
+		{ "n", "<M-S-=>", "<Cmd>lua require'ollama_chat.chat'.resize_chat_window(0, 2)<CR>" },
+		{ "n", "<M-S-->", "<Cmd>lua require'ollama_chat.chat'.resize_chat_window(0, -2)<CR>" },
+		-- Toggle visibility (Alt + Shift + C)
+		{ "n", "<M-S-c>", "<Cmd>lua require'ollama_chat.chat'.toggle_visibility()<CR>" },
+		-- Close with confirmation (Alt + Shift + ~)
+		{ "n", "<M-S-`>", "<Cmd>lua require'ollama_chat.chat'.close_with_confirmation()<CR>" },
+	}
+
+	for _, keymap in ipairs(global_keymaps) do
+		vim.keymap.set(keymap[1], keymap[2], keymap[3], { noremap = true, silent = true })
+	end
+
+	-- Input buffer specific keymaps
+	if state.input_buf and api.nvim_buf_is_valid(state.input_buf) then
+		local input_keymaps = {
+			{ "n", "q", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
+			{ "i", "<CR>", "<Cmd>lua require'ollama_chat.chat'.send_input()<CR>" },
+			{ "n", "<CR>", "<Cmd>lua require'ollama_chat.chat'.send_input()<CR>" },
+			{ "i", "<C-c>", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
+			{ "n", "<Esc>", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
+			{ "i", "<C-j>", "<C-o>o" },
+		}
+
+		for _, keymap in ipairs(input_keymaps) do
+			api.nvim_buf_set_keymap(state.input_buf, keymap[1], keymap[2], keymap[3], { noremap = true, silent = true })
+		end
+	end
+
+	-- Chat buffer specific keymaps
+	if state.chat_buf and api.nvim_buf_is_valid(state.chat_buf) then
+		local chat_keymaps = {
+			{ "n", "q", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
+			{ "n", "<Esc>", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
+			{ "n", "i", "<Cmd>lua require'ollama_chat.chat'.focus_input()<CR>" },
+		}
+
+		for _, keymap in ipairs(chat_keymaps) do
+			api.nvim_buf_set_keymap(state.chat_buf, keymap[1], keymap[2], keymap[3], { noremap = true, silent = true })
+		end
+	end
+end
+
+-- Show previously hidden windows, restoring their state
+local function show_chat_windows()
+	if not state.windows_hidden then
+		return
+	end
+
+	-- Ensure buffers still exist
+	if
+		not (state.chat_buf and api.nvim_buf_is_valid(state.chat_buf))
+		or not (state.input_buf and api.nvim_buf_is_valid(state.input_buf))
+	then
+		logger.error("Cannot restore windows: buffers no longer valid")
+		return
+	end
+
+	-- Use stored positions or recalculate
+	local positions = state.last_positions or calculate_window_pos()
+
+	-- Recreate windows with existing buffers
+	local config = config_module.get_config()
+
+	-- Recreate chat window
+	local chat_win_opts = {
+		relative = "editor",
+		width = positions.chat.width,
+		height = positions.chat.height,
+		row = positions.chat.row,
+		col = positions.chat.col,
+		style = "minimal",
+		border = config.ui.border_style,
+	}
+	state.chat_win = api.nvim_open_win(state.chat_buf, false, chat_win_opts)
+	api.nvim_win_set_option(state.chat_win, "winhl", "Normal:Normal,FloatBorder:FloatBorder")
+
+	-- Recreate input window
+	local input_win_opts = {
+		relative = "editor",
+		width = positions.input.width,
+		height = positions.input.height,
+		row = positions.input.row,
+		col = positions.input.col,
+		style = "minimal",
+		border = config.ui.border_style,
+	}
+	state.input_win = api.nvim_open_win(state.input_win, false, input_win_opts)
+	api.nvim_win_set_option(state.input_win, "winhl", "Normal:Normal,FloatBorder:FloatBorder")
+
+	-- Restore key mappings
+	setup_window_keymaps()
+
+	state.windows_hidden = false
+	logger.info("Chat windows restored")
+
+	-- Focus input window
+	M.focus_input()
 end
 
 -- Appends a message to the chat buffer
@@ -316,6 +455,12 @@ end
 function M.resize_chat_window(delta_height, delta_width)
 	if not (state.chat_win and api.nvim_win_is_valid(state.chat_win)) then
 		logger.warn("Cannot resize: Chat window is not open or invalid")
+		vim.notify("Windows are hidden.  Show them first with Alt+Shift+C", vim.log.levels.WARN)
+		return
+	end
+
+	if not (state.chat_win and api.nvim_win_is_valid(state.chat_win)) then
+		logger.warn("Cannot resize: Chat window is not open or is invalid")
 		return
 	end
 
@@ -324,9 +469,19 @@ function M.resize_chat_window(delta_height, delta_width)
 	local current_width = config.ui.chat_win_width
 	local current_height = config.ui.chat_win_height
 
-	-- Calculate new dimensions
+	-- Calculate new dimensions by applying deltas
+	local new_height = current_height + delta_height
+	local new_width = current_width + delta_width
+
+	-- Apply minimum constraints
 	new_height = math.max(10, new_height) -- Minimum 10 lines
 	new_width = math.max(20, new_width) -- Minimum 20 columns
+
+	-- Calculate new dimensions
+	local editor_width = api.nvim_get_option("columns")
+	local editor_height = api.nvim_get_option("lines")
+	new_height = math.min(new_width, math.floor(editor_width * 0.75))
+	new_width = math.min(new_height, math.floor(editor_height * 0.6))
 
 	-- Update the global UI configuration
 	config.ui.chat_win_width = new_width
@@ -336,15 +491,12 @@ function M.resize_chat_window(delta_height, delta_width)
 	local positions = calculate_window_pos()
 
 	-- Apply new size to the chat window
-	api.nvim_win_set_config(
-		state.chat_win,
-		{
-			width = positions.chat.width,
-			heigh = positions.chat.height,
-			row = positions.chat.row,
-			col = positions.chat.col,
-		}
-	)
+	api.nvim_win_set_config(state.chat_win, {
+		width = positions.chat.width,
+		height = positions.chat.height,
+		row = positions.chat.row,
+		col = positions.chat.col,
+	})
 
 	-- Also resize the input window if it's in vertical layout to match new chat width
 	if config.ui.layout == "vertical" and state.input_win and api.nvim_win_is - valid(state.input_win) then
@@ -354,9 +506,66 @@ function M.resize_chat_window(delta_height, delta_width)
 			row = positions.input.row,
 			col = positions.input.col,
 		})
+	elseif config.ui.layout == "horizontal" and state.input_win and api.nvim_win_is_valid(state.input_win) then
+		api.nvim_win_set_config(state.input_win, {
+			width = positions.input.width,
+			height = positions.input.height,
+			row = positions.input.row,
+			col = positions.input.col,
+		})
 	end
 
 	logger.info(string.format("Chat window resized to %dx%d", new_width, new_height))
+	vim.notify(string.format("Window resized to %d x %d", new_width, new_height), vim.log.levels.INFO)
+end
+
+-- Public function to toggle window visibility
+function M.toggle_visibility()
+	if state.windows_hidden then
+		show_chat_windows()
+		vim.notify("Chat windows shown", vim.log.levels.INFO)
+	else
+		hide_chat_windows()
+		vim.notify("Chat windows hidden", vim.log.levels.INFO)
+	end
+end
+
+-- Public function to close with user confirmation
+function M.close_with_confirmation()
+	-- Create a simple input dialog
+	vim.ui.input({
+		prompt = "Close Ollama Chat?  All conversation will be lost - **HINT** 'Alt + Shift + ~' shows/hides conversation window(s).  Still close chat window (y/n)? ",
+	}, function(input)
+		if input and string.lower(input) == "y" then
+			close_chat_windows()
+			vim.notify("Ollama Chat Closed", vim.log.levels.INFO)
+		elseif input and string.lower(input) == "n" then
+			vim.notify("Close cancelled", vim.log.levels.INFO)
+		else
+			vim.notify("Invalid input.  Close cancelled.", vim.log.levels.WARN)
+		end
+	end)
+end
+
+-- Creates and configures the main chat display window
+local function create_chat_window(pos)
+	local config = config_module.get_config()
+
+	state.chat_buf = api.nvim_create_buf(false, true)
+	api.nvim_buf_set_option(state.chat_buf, "filetype", "markdown")
+	api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
+
+	local win_opts = {
+		relative = "editor",
+		width = pos.chat.width,
+		height = pos.chat.height,
+		row = pos.chat.row,
+		col = pos.chat.col,
+		style = "minimal",
+		border = config.ui.border_style,
+	}
+	state.chat_win = api.nvim_open_win(state.chat_buf, false, win_opts)
+	api.nvim_win_set_option(state.chat_win, "winhl", "Normal:Normal,FloatBorder:FloatBorder")
 end
 
 -- Creates and configures the user input window
@@ -379,24 +588,6 @@ local function create_input_window(pos)
 	state.input_win = api.nvim_open_win(state.input_buf, false, win_opts)
 	api.nvim_win_set_option(state.input_win, "winhl", "Normal:Normal,FloatBorder:FloatBorder")
 
-	-- Keymaps for the input buffer
-	local keymaps = {
-		{ "n", "q", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
-		{ "i", "<CR>", "<Cmd>lua require'ollama_chat.chat'.send_input()<CR>" },
-		{ "n", "<CR>", "<Cmd>lua require'ollama_chat.chat'.send_input()<CR>" },
-		{ "i", "<C-c>", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
-		{ "n", "<Esc>", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
-		{ "i", "<C-j>", "<C-o>o" }, -- Opens new line below in insert mode
-		{ "n", "<C-=>", "<Cmd>lua require'ollama_chat.chat'.resize_chat_window(2, 0)<CR>" }, --resizes chat window plus two units on the Y-Axis
-		{ "n", "<C-->", "<Cmd>lua require'ollama_chat.chat'.resize_chat_window(-2, 0)<CR>" }, --resizes chat window negative two units on the Y-Axis
-		{ "n", "<C-S-=>", "<Cmd>lua require'ollama_chat.chat'.resize_chat_window(0, 2)<CR>" }, --resizes chat window plus two units on the X-Axis
-		{ "n", "<C-S-->", "<Cmd>lua require'ollama_chat.chat'.resize_chat_window(0, -2)<CR>" }, --resizes chat window negative two units on the X-Axis
-	}
-
-	for _, keymap in ipairs(keymaps) do
-		api.nvim_buf_set_keymap(state.input_buf, keymap[1], keymap[2], keymap[3], { noremap = true, silent = true })
-	end
-
 	-- Add placeholder text
 	api.nvim_buf_set_lines(state.input_buf, 0, -1, false, { "Type your message here..." })
 
@@ -413,39 +604,6 @@ local function create_input_window(pos)
 	})
 end
 
--- Creates and configures the main chat display window
-local function create_chat_window(pos)
-	local config = config_module.get_config()
-
-	state.chat_buf = api.nvim_create_buf(false, true)
-	api.nvim_buf_set_option(state.chat_buf, "filetype", "markdown")
-	api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
-
-	local win_opts = {
-		relative = "editor",
-		width = pos.chat.width,
-		height = pos.chat.height,
-		row = pos.chat.row,
-		col = pos.chat.col,
-		style = "minimal",
-		border = config.ui.border_style,
-	}
-	state.chat_win = api.nvim_open_win(state.chat_buf, false, win_opts)
-	api.nvim_win_set_option(state.chat_win, "winhl", "Normal:Normal,FloatBorder:FloatBorder")
-
-	-- Make chat window read-only with useful keymaps
-	local chat_keymaps = {
-		{ "n", "q", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
-		{ "n", "<Esc>", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
-		{ "n", "i", "<Cmd>lua require'ollama_chat.chat'.focus_input()<CR>" },
-		{ "n", "i", "<Cmd>lua require'ollama_chat.chat'.focus_input()<CR>" },
-	}
-
-	for _, keymap in ipairs(chat_keymaps) do
-		api.nvim_buf_set_keymap(state.chat_buf, keymap[1], keymap[2], keymap[3], { noremap = true, silent = true })
-	end
-end
-
 -- Public function to focus the input window
 function M.focus_input()
 	if state.input_win and api.nvim_win_is_valid(state.input_win) then
@@ -454,6 +612,8 @@ function M.focus_input()
 		if config.ui.start_in_insert_mode then
 			vim.cmd("startinsert")
 		end
+	elseif state.windows_hidden then
+		vim.notify("Windows are hidden.  Show them first with Alt+Shift+C", vim.log.levels.WARN)
 	end
 end
 
@@ -467,6 +627,12 @@ function M.open()
 		return
 	end
 
+	-- If windows are hidden but buffers exist, just show them
+	if state.windows_hiddena and state.chat_buf and api.nvim_buf_is_valid(state.chat_buf) then
+		show_chat_windows()
+		return
+	end
+
 	-- Calculate window positions based on configuration
 	local positions = calculate_window_pos()
 
@@ -474,13 +640,16 @@ function M.open()
 	create_chat_window(positions)
 	create_input_window(positions)
 
+	-- Setup key mappings
+	setup_window_keymaps()
+
 	-- Show welcome message
 	render_message(
 		"system",
-		"Welcome to Zomboco--I mean Ollama Chat.  Anything is possible at Zombo--er...Ollama Chat.  Type your prompt and press Enter.  Yeah."
+		"Welcome to Zomboco--I mean Ollama Chat.  Anything is possible at Z--Ollama Chat.  ZOllamaChat.  Yes.  Type your prompt and press 'Enter'"
 	)
 
-	-- Focus input window and start in insert mode if configured
+	-- Focus input window and start in insert mode (if configured)
 	M.focus_input()
 end
 
@@ -508,6 +677,11 @@ end
 -- Internal function exposed for keymap execution
 function M.send_input()
 	logger.info("send_input called, is_thinking: " .. tostring(state.is_thinking))
+
+	if state.windows_hidden then
+		vim.notify("Windows are hidden.  Show them first with Alt+Shift+C", vim.log.levels.WARN)
+		return
+	end
 
 	if state.is_thinking then
 		logger.warn("Currently processing a request, please wait...")
