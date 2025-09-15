@@ -10,7 +10,7 @@ local cached_config = nil
 local config = {
 	ollama_host = "0.0.0.0",
 	ollama_port = 11434,
-	default_model = "qwen3:8b",
+	default_model = "qwen3:4b",
 	chat_history = {
 		enabled = true,
 		path = "/home/yosh/ollama_chat.log",
@@ -124,11 +124,11 @@ local function validate_config(conf)
 	end
 
 	-- Validate UI
-	if not conf.ui.chat_win_width or type(conf.ui.chat_win_width) ~= "number" then
-		return false, "Invalid or missing value for 'ui' entry 'chat_win_width'"
+	if not conf.ui.chat_win.width or type(conf.ui.chat_win.width) ~= "number" then
+		return false, "Invalid or missing value for 'ui' entry 'chat_win.width'"
 	end
-	if not conf.ui.chat_win_height or type(conf.ui.chat_win_height) ~= "number" then
-		return false, "Invalid or missing value for 'ui' entry 'chat_win_height'"
+	if not conf.ui.chat_win.height or type(conf.ui.chat_win.height) ~= "number" then
+		return false, "Invalid or missing value for 'ui' entry 'chat_win.height'"
 	end
 	if not conf.ui.input_win_height or type(conf.ui.input_win_height) ~= "number" then
 		return false, "Invalid or missing value for 'ui' entry 'input_win_height'"
@@ -198,16 +198,16 @@ function M.setup(user_opts)
 
 		-- Window dimensions
 		if ui.window_width then
-			config.ui.chat_win_width = ui.window_width
+			config.ui.chat_win.width = ui.window_width
 		end
 		if ui.window_height then
-			config.ui.chat_win_height = ui.window_height
+			config.ui.chat_win.height = ui.window_height
 		end
-		if ui.chat_win_width then
-			config.ui.chat_win_width = ui.chat_win_width
+		if ui.chat_win.width then
+			config.ui.chat_win.width = ui.chat_win.width
 		end
-		if ui.chat_win_height then
-			config.ui.chat_win_height = ui.chat_win_height
+		if ui.chat_win.height then
+			config.ui.chat_win.height = ui.chat_win.height
 		end
 		if ui.input_win_width then
 			config.ui.input_win_width = ui.input_win_width

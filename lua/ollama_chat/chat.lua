@@ -34,10 +34,10 @@ local function calculate_window_pos()
 	local editor_height = api.nvim_get_option("lines")
 
 	-- Chat window dimensions
-	local chat_width = ui.chat_win.width
-	local chat_height = ui.chat_win.height
-	local input_width = ui.input_win.width or chat_width
-	local input_height = ui.input_win.height
+	local chat_width = ui.chat_win_width
+	local chat_height = ui.chat_win_height
+	local input_width = ui.input_win_width or chat_width
+	local input_height = ui.input_win_height
 	local gap = ui.window_gap or 1
 
 	-- Total height needed for both windows plus gap
@@ -50,10 +50,10 @@ local function calculate_window_pos()
 		-- User specified exact coordinates
 		pos.chat_row = ui.chat_win.pos.row
 		pos.chat_col = ui.chat_win.pos.col
-	elseif ui.chat_win.pos == "top" then
+	elseif ui.chat_win_pos == "top" then
 		pos.chat_row = 1
 		pos.chat_col = math.floor((editor_width - chat_width) / 2)
-	elseif ui.chat_win.pos == "bottom" then
+	elseif ui.chat_win_pos == "bottom" then
 		pos.chat_row = editor_height - total_height - 2 -- Leaves room for command
 		pos.chat_col = math.floor((editor_width - chat_width) / 2)
 	else -- "center" or default
@@ -85,7 +85,7 @@ local function calculate_window_pos()
 			width = input_width,
 			height = input_height,
 			row = pos.input_row,
-			pos.input_col,
+			col = pos.input_col,
 		},
 	}
 end
@@ -314,7 +314,7 @@ end
 local function create_input_window(pos)
 	local config = config_module.get_config()
 
-	state.input_buf = api.nvim_reate_buf(false, true)
+	state.input_buf = api.nvim_create_buf(false, true)
 	api.nvim_buf_set_option(state.input_buf, "filetype", "ollama_chat_input")
 
 	local win_opts = {
