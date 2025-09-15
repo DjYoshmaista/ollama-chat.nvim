@@ -32,66 +32,46 @@ function M.is_server_available(callback)
 	})
 end
 
--- FIXED: Proper stream processing that actually calls the callback
-local function process_stream_data(data, on_chunk, on_finish, on_error)
-	local buffer = ""
+-- Process stream data - simplified to work with Ollama's JSON-per-line format
+local function process_stream_data(on_chunk, on_finish, on_error)
+	local has_finished = false
+
 	return function(chunk)
-		logger.info("process_stream_data: Processing chunk: " .. tostring(chunk))
-
-		-- For Ollama, each chunk is typically a complete JSON line
-		-- Let's try processing it directly first
-		local trimmed_chunk = chunk:match("^%s*(.-)%s*$") -- trim whitespace
-
-		if trimmed_chunk and trimmed_chunk ~= "" then
-			logger.info("process_stream_data: Processing trimmed chunk as line: " .. trimmed_chunk)
-			local ok, decoded = pcall(vim.json.decode, trimmed_chunk)
-			if ok then
-				logger.info("process_stream_data: Successfully decoded JSON from direct chunk")
-				if decoded.message and decoded.message.content then
-					local content = decoded.message.content
-					logger.info("process_stream_data: Calling on_chunk with: '" .. content .. "'")
-					on_chunk(content)
-				elseif decoded.done then
-					logger.info("process_stream_data: Stream done, calling on_finish")
-					on_finish(decoded)
-				end
-				return -- Successfully processed, exit early
-			else
-				logger.warn(
-					"process_stream_data: Failed to decode chunk directly, trying line-by-line: " .. trimmed_chunk
-				)
-			end
-		end
-
-		-- Fallback to line-by-line processing if direct processing fails
-		buffer = buffer .. chunk
-		local lines = vim.split(buffer, "\n", { plain = true })
-
-		if #lines == 0 then
+		if has_finished then
 			return
 		end
 
-		-- Assume the last line might be incomplete
-		buffer = table.remove(lines, #lines)
+		logger.info("process_stream_data: Processing chunk: " .. tostring(chunk))
 
-		for _, line in ipairs(lines) do
-			local trimmed_line = line:match("^%s*(.-)%s*$") -- trim whitespace
-			if trimmed_line and trimmed_line ~= "" then
-				logger.info("process_stream_data: Processing line: " .. trimmed_line)
-				local ok, decoded = pcall(vim.json.decode, trimmed_line)
-				if ok then
-					logger.info("process_stream_data: Successfully decoded JSON from line")
-					if decoded.message and decoded.message.content then
-						local content = decoded.message.content
-						logger.info("process_stream_data: Calling on_chunk with: '" .. content .. "'")
-						on_chunk(content)
-					elseif decoded.done then
-						logger.info("process_stream_data: Stream done, calling on_finish")
-						on_finish(decoded)
-					end
-				else
-					logger.error("process_stream_data: Failed to decode JSON line: " .. trimmed_line)
+		-- Ollama sends complete JSON objects, usually one per chunk
+		-- Try to decode the chunk directly first
+		local trimmed_chunk = chunk:match("^%s*(.-)%s*$")
+		if trimmed_chunk and trimmed_chunk ~= "" then
+			logger.info("process_stream_data: Processing trimmed chunk: " .. trimmed_chunk)
+
+			local success, decoded = pcall(vim.json.decode, trimmed_chunk)
+			if success and decoded then
+				logger.info("process_stream_data: Successfully decoded JSON from chunk")
+
+				if decoded.done then
+					logger.info("process_stream_data: Stream finished")
+					has_finished = true
+					on_finish(decoded)
+					return
+				elseif decoded.message and decoded.message.content then
+					local content = decoded.message.content
+					logger.info("process_stream_data: Calling on_chunk with: '" .. content .. "'")
+					on_chunk(content)
+				elseif decoded.error then
+					logger.error("process_stream_data: Server error: " .. tostring(decoded.error))
+					has_finished = true
+					on_error("Server error: " .. tostring(decoded.error))
+					return
 				end
+			else
+				logger.warn("process_stream_data: Failed to decode JSON chunk: " .. trimmed_chunk)
+				-- For debugging - let's see what we couldn't decode
+				logger.debug("process_stream_data: Decode error was: " .. tostring(decoded))
 			end
 		end
 	end
@@ -109,9 +89,10 @@ function M.stream_chat(params)
 
 	-- Ensure required parameters are provided
 	if not (params.model and params.messages and params.on_chunk and params.on_finish and params.on_error) then
+		local error_msg = "stream_chat: Missing required parameters (model, messages, on_chunk, on_finish, on_error)"
+		logger.error(error_msg)
 		if params.on_error then
-			logger.error("stream_chat: Missing required parameters - model, messages, on_chunk, on_finish, on_error")
-			params.on_error("stream_chat: Missing required parameters (model, messages, on_chunk, on_finish, on_error)")
+			params.on_error(error_msg)
 		end
 		return
 	end
@@ -122,14 +103,21 @@ function M.stream_chat(params)
 		stream = true,
 	}
 
-	-- Manually encode the table into a JSON string
-	local body_json = vim.json.encode(body_tbl)
+	local success, body_json = pcall(vim.json.encode, body_tbl)
+	if not success then
+		local error_msg = "Failed to encode request body: " .. tostring(body_json)
+		logger.error(error_msg)
+		params.on_error(error_msg)
+		return
+	end
+
 	logger.info("stream_chat: Body - " .. body_json)
 
-	-- FIXED: Create the processor function correctly
-	local process_chunk = process_stream_data(body_json, params.on_chunk, params.on_finish, params.on_error)
+	-- Create the processor function
+	local process_chunk = process_stream_data(params.on_chunk, params.on_finish, params.on_error)
+	local job_finished = false
 
-	Job:new({
+	local job = Job:new({
 		command = "curl",
 		args = {
 			"-s",
@@ -140,30 +128,85 @@ function M.stream_chat(params)
 			"Content-Type: application/json",
 			"-d",
 			body_json,
-			"--no-buffer", -- This flag is CRUCIAL for streaming responses
+			"--no-buffer",
 		},
 		on_stdout = function(err, data)
-			if data and data ~= "" then
-				logger.info("RAW CHUNK RECEIVED: " .. tostring(data))
-				-- FIXED: Just call process_chunk with data - it's already configured with callbacks
-				process_chunk(data)
-			elseif err then
+			if job_finished then
+				return
+			end
+
+			if err then
 				logger.error("Error on stdout: " .. tostring(err))
+				job_finished = true
 				params.on_error("Error receiving data: " .. tostring(err))
 				return
 			end
+
+			if data and data ~= "" then
+				logger.info("RAW CHUNK RECEIVED: " .. tostring(data))
+				process_chunk(data)
+			end
 		end,
 		on_stderr = function(err, data)
+			if job_finished then
+				return
+			end
+
 			if data and data ~= "" then
 				logger.error("curl stderr: " .. data)
+				job_finished = true
 				params.on_error("Request Error: " .. data)
 			elseif err then
 				logger.error("Error on stderr: " .. tostring(err))
+				job_finished = true
 				params.on_error("Error during request: " .. tostring(err))
-				return
 			end
 		end,
-	}):start()
+		on_exit = function(j, return_val)
+			if job_finished then
+				return
+			end
+
+			logger.info("curl exited with code: " .. tostring(return_val))
+			if return_val ~= 0 then
+				job_finished = true
+				params.on_error("curl exited with non-zero code: " .. tostring(return_val))
+			end
+		end,
+	})
+
+	-- Start the job
+	job:start()
+
+	-- Return job handle for potential cancellation
+	return job
+end
+
+-- Get available models (placeholder - implement if needed)
+function M.get_available_models(callback)
+	local url = get_base_url() .. "/api/tags"
+
+	curl.get(url, {
+		callback = function(response)
+			if response.exit ~= 0 or response.status ~= 200 then
+				logger.error("Failed to get models: " .. tostring(response.exit))
+				callback({})
+				return
+			end
+
+			local success, decoded = pcall(vim.json.decode, response.body)
+			if success and decoded and decoded.models then
+				local model_names = {}
+				for _, model in ipairs(decoded.models) do
+					table.insert(model_names, model.name)
+				end
+				callback(model_names)
+			else
+				logger.error("Failed to decode models response")
+				callback({})
+			end
+		end,
+	})
 end
 
 return M

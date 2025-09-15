@@ -142,6 +142,7 @@ end
 -- Retrieves user input and sends it to client then handles the response
 local function send_current_input()
 	if state.is_thinking then
+		logger.warn("Already thinking, ignoring input")
 		return
 	end
 
@@ -149,8 +150,11 @@ local function send_current_input()
 	local prompt = table.concat(input_lines, "\n")
 
 	if prompt:gsub("%s", "") == "" then
+		logger.info("Empty prompt, ignoring")
 		return
 	end
+
+	logger.info("Sending input: " .. prompt)
 
 	-- Clear input buffer
 	api.nvim_buf_set_lines(state.input_buf, 0, -1, false, { "" })
@@ -158,14 +162,17 @@ local function send_current_input()
 	-- Add user message to history and render it
 	table.insert(state.session_messages, { role = "user", content = prompt })
 	render_message("user", prompt)
+
+	-- Set thinking state
 	state.is_thinking = true
 	state.assistant_response_started = false
+	logger.info("Set is_thinking to true")
 
 	-- Prepare for assistant's response
 	vim.schedule(function()
 		if state.chat_buf and api.nvim_buf_is_valid(state.chat_buf) then
 			api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
-			api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, { "--- ASSISTANT ---", "" })
+			api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, { "", "--- ASSISTANT ---", "" })
 			api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
 			logger.info("Added ASSISTANT header to chat buffer")
 		end
@@ -173,11 +180,24 @@ local function send_current_input()
 
 	local assistant_response_content = ""
 
+	-- Add error handling wrapper
+	local function safe_callback(callback_name, callback_func)
+		return function(...)
+			local success, err = pcall(callback_func, ...)
+			if not success then
+				logger.error("Error in " .. callback_name .. ": " .. tostring(err))
+				state.is_thinking = false
+				render_message("error", "Error in " .. callback_name .. ": " .. tostring(err))
+			end
+		end
+	end
+
 	client.stream_chat({
 		model = config_module.get_config().default_model,
 		messages = state.session_messages,
-		on_chunk = function(chunk)
+		on_chunk = safe_callback("on_chunk", function(chunk)
 			logger.info("on_chunk called with: '" .. chunk .. "'")
+
 			-- Clean chunk and render
 			local clean_chunk = chunk
 			if chunk:match("^</?think>") then
@@ -193,19 +213,32 @@ local function send_current_input()
 			else
 				logger.debug("Skipping empty chunk after cleaning")
 			end
-		end,
-		on_finish = function(_)
-			logger.info("Stream finished. Full response: " .. assistant_response_content)
-			table.insert(state.session_messages, { role = "assistant", content = assistant_response_content })
+		end),
+		on_finish = safe_callback("on_finish", function(response)
+			logger.info("Stream finished. Full response length: " .. #assistant_response_content)
+
+			-- Only add to session messages if we got content
+			if assistant_response_content ~= "" then
+				table.insert(state.session_messages, { role = "assistant", content = assistant_response_content })
+				logger.info("Added assistant response to session messages")
+			else
+				logger.warn("No assistant content received")
+			end
+
+			-- Reset thinking state
 			state.is_thinking = false
 			state.assistant_response_started = false
-		end,
-		on_error = function(error_msg)
+			logger.info("Reset is_thinking to false - ready for next input")
+		end),
+		on_error = safe_callback("on_error", function(error_msg)
 			logger.error("Stream error: " .. tostring(error_msg))
-			render_message("error", error_msg)
+			render_message("error", "Stream error: " .. tostring(error_msg))
+
+			-- Reset thinking state on error
 			state.is_thinking = false
 			state.assistant_response_started = false
-		end,
+			logger.info("Reset is_thinking to false due to error")
+		end),
 	})
 end
 
@@ -248,6 +281,23 @@ local function create_input_window(parent_win_id)
 		"<Cmd>lua require'ollama_chat.chat'.send_input()<CR>",
 		{ noremap = true, silent = true }
 	)
+
+	-- Additional keymaps for better UX
+	api.nvim_buf_set_keymap(
+		state.input_buf,
+		"n",
+		"<CR>",
+		"<Cmd>lua require'ollama_chat.chat'.send_input()<CR>",
+		{ noremap = true, silent = true }
+	)
+
+	-- Start in insert mode for immediate typing
+	vim.schedule(function()
+		if state.input_win and api.nvim_win_is_valid(state.input_win) then
+			api.nvim_set_current_win(state.input_win)
+			vim.cmd("startinsert")
+		end
+	end)
 end
 
 -- Creates and configures the main chat display window
@@ -281,6 +331,7 @@ function M.open()
 	if state.chat_win and api.nvim_win_is_valid(state.chat_win) then
 		logger.info("Chat window already open, focusing input")
 		api.nvim_set_current_win(state.input_win)
+		vim.cmd("startinsert")
 		return
 	end
 
@@ -314,24 +365,46 @@ function M.close()
 	close_chat_windows()
 end
 
--- Internal function exposed for keymap exectuion
+-- Internal function exposed for keymap execution
 function M.send_input()
+	logger.info("send_input called, is_thinking: " .. tostring(state.is_thinking))
+
 	if state.is_thinking then
-		require("ollama_chat.utils").notify("Please wait for the current response..", vim.log.levels.WARN)
+		logger.warn("Currently processing a request, please wait...")
+		vim.notify("Please wait for the current response to complete...", vim.log.levels.WARN)
 		return
 	end
 
 	-- Check server availability first
 	client.is_server_available(function(available, error_msg)
 		if not available then
+			logger.error("Server not available: " .. (error_msg or "Unknown error"))
 			render_message("error", "Ollama server is not available: " .. (error_msg or "Unknown error"))
 			return
 		end
 		-- Continue with sending input
+		logger.info("Server available, sending input")
 		vim.schedule(function()
 			send_current_input()
 		end)
 	end)
+end
+
+-- Utility function to check current state (for debugging)
+function M.debug_state()
+	logger.info("=== DEBUG STATE ===")
+	logger.info("is_thinking: " .. tostring(state.is_thinking))
+	logger.info("assistant_response_started: " .. tostring(state.assistant_response_started))
+	logger.info("session_messages count: " .. #state.session_messages)
+	logger.info("chat_buf valid: " .. tostring(state.chat_buf and api.nvim_buf_is_valid(state.chat_buf)))
+	logger.info("input_buf valid: " .. tostring(state.input_buf and api.nvim_buf_is_valid(state.input_buf)))
+	logger.info("==================")
+
+	-- Also print to user
+	print("Ollama Chat Debug:")
+	print("- Thinking: " .. tostring(state.is_thinking))
+	print("- Messages: " .. #state.session_messages)
+	print("- Buffers valid: " .. tostring(state.chat_buf and api.nvim_buf_is_valid(state.chat_buf)))
 end
 
 return M
