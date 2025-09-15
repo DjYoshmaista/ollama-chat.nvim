@@ -55,8 +55,8 @@ local function close_chat_windows()
 end
 
 -- Appends a message to the chat buffer
--- 	@param role string "user" or "assistant"
--- @	param content string - The message content
+--  @param role string "user" or "assistant"
+--  @param content string - The message content
 local function render_message(role, content)
 	logger.info("Appending message to the chat buffer.  Message: " .. content)
 	vim.schedule(function()
@@ -122,8 +122,8 @@ local function render_stream_chunk(chunk)
 		api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
 
 		-- Get the last line of the buffer
-		local last_line_idx = api.nvim_buf_attach_line_count(state.chat_buf) - 1
-		local last_line = api.nvim_buf_get - lines(state.chat_buf, last_line_idx, -1, false)[1] or ""
+		local last_line_idx = api.nvim_buf_line_count(state.chat_buf) - 1
+		local last_line = api.nvim_buf_get_lines(state.chat_buf, last_line_idx, -1, false)[1] or ""
 
 		-- Append the new chunk to the last line
 		local new_content = last_line .. chunk
