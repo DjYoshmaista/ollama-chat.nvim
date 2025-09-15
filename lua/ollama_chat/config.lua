@@ -22,7 +22,23 @@ local config = {
 		path = "/home/yosh/ollama_chat_debug.log",
 	},
 	ui = {
+		-- Main chat window configuration
 		chat_win_width = 80,
+		chat_win_height = 20,
+		chat_win_pos = "center", -- "center", "top", "bottom", or { row = N, col = N }
+
+		-- Input window configuration
+		input_win_height = 3,
+		input_win_width = nil, --nil means match chat window width
+
+		-- Window behavior
+		start_in_insert_mode = true,
+		auto_scroll = true,
+
+		-- Layout options
+		layout = "vertical", -- "vertical" (input below chat), "horizontal" (side-by-side)
+
+		-- Various options
 		show_icons = true,
 		border_style = "rounded", -- rounded, single, double, solid
 	},
@@ -111,8 +127,34 @@ local function validate_config(conf)
 	if not conf.ui.chat_win_width or type(conf.ui.chat_win_width) ~= "number" then
 		return false, "Invalid or missing value for 'ui' entry 'chat_win_width'"
 	end
+	if not conf.ui.chat_win_height or type(conf.ui.chat_win_height) ~= "number" then
+		return false, "Invalid or missing value for 'ui' entry 'chat_win_height'"
+	end
+	if not conf.ui.input_win_height or type(conf.ui.input_win_height) ~= "number" then
+		return false, "Invalid or missing value for 'ui' entry 'input_win_height'"
+	end
+	if not conf.ui.input_win_width or type(conf.ui.input_win_width) ~= "number" then
+		return false, "Invalid or missing value for 'ui' entry 'input_win_width'"
+	end
 	if not conf.ui.border_style or type(conf.ui.border_style) ~= "string" then
 		return false, "Invalid or missing value for 'ui' entry 'border_style'"
+	end
+
+	-- Validate position
+	if conf.ui.chat_win_position then
+		local pos = conf.ui.chat_win_pos
+		if type(pos) == "string" then
+			local valid_positions = { center = true, top = true, bottom = true }
+			if not valid_positions[pos] then
+				return false, "Invalid position string.  Must be 'center', 'top' or 'bottom'"
+			end
+		elseif type(pos) == "table" then
+			if type(pos.row) ~= "number" or type(pos.col) ~= "number" then
+				return false, "Invalid position table.  Must have numeric 'row' and 'col' fields"
+			end
+		else
+			return false, "Invalid position type.  Must be string or table"
+		end
 	end
 
 	return true, nil
@@ -153,11 +195,55 @@ function M.setup(user_opts)
 	-- Handle nested 'ui' configuration
 	if user_opts.ui then
 		local ui = user_opts.ui
+
+		-- Window dimensions
 		if ui.window_width then
 			config.ui.chat_win_width = ui.window_width
 		end
+		if ui.window_height then
+			config.ui.chat_win_height = ui.window_height
+		end
+		if ui.chat_win_width then
+			config.ui.chat_win_width = ui.chat_win_width
+		end
+		if ui.chat_win_height then
+			config.ui.chat_win_height = ui.chat_win_height
+		end
+		if ui.input_win_width then
+			config.ui.input_win_width = ui.input_win_width
+		end
+		if ui.input_win_height then
+			config.ui.input_win_height = ui.input_win_height
+		end
+
+		-- Window positioning and layout
+		if ui.position then
+			config.ui.chat_win_position = ui.position
+		end
+		if ui.chat_win_pos then
+			config.ui.chat_win_pos = ui.chat_win_pos
+		end
+		if ui.layout then
+			config.ui.layout = ui.layout
+		end
+		if ui.window_gap ~= nil then
+			config.ui.window_gap = ui.window_gap
+		end
+
+		-- Styling options
 		if ui.border_style then
 			config.ui.border_style = ui.border_style
+		end
+		if ui.show_icons ~= nil then
+			config.ui.show_icons = ui.show_icons
+		end
+
+		-- Behavior options
+		if ui.start_in_insert_mode ~= nil then
+			config.ui.start_in_insert_mode = ui.start_in_insert_mode
+		end
+		if ui.auto_scroll ~= nil then
+			config.ui.auto_scroll = ui.auto_scroll
 		end
 	end
 

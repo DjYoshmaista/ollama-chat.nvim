@@ -15,9 +15,17 @@
     "max_history_size": 10000
   },
   "ui": {
-    "window_width": 80,
-    "window_height": 12,
-    "position": "center"
+    "chat_win_width": 80,
+    "chat_win_height": 20,
+    "chat_win_pos": "center",
+    "input_win_height": 3,
+    "input_win_width": 80,
+    "window_gap": 1,
+    "border_style": "rounded",
+    "show_icons": true,
+    "start_in_insert_mode": true,
+    "auto_scroll": true,
+    "layout": "vertical"
   },
   "log": {
     "level": "debug",

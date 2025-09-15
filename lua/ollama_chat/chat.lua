@@ -24,6 +24,72 @@ local state = {
 }
 logger.info("Ollama state table initialized")
 
+-- Calculate window positions based on configuration
+--  @return table - Window positioning data
+local function calculate_window_pos()
+	local config = config_module.get_config()
+	local ui = config.ui
+
+	local editor_width = api.nvim_get_option("columns")
+	local editor_height = api.nvim_get_option("lines")
+
+	-- Chat window dimensions
+	local chat_width = ui.chat_win.width
+	local chat_height = ui.chat_win.height
+	local input_width = ui.input_win.width or chat_width
+	local input_height = ui.input_win.height
+	local gap = ui.window_gap or 1
+
+	-- Total height needed for both windows plus gap
+	local total_height = chat_height + input_height + gap
+
+	local pos = {}
+
+	-- Calculate base position for the chat window
+	if type(ui.chat_win_pos) == "table" then
+		-- User specified exact coordinates
+		pos.chat_row = ui.chat_win.pos.row
+		pos.chat_col = ui.chat_win.pos.col
+	elseif ui.chat_win.pos == "top" then
+		pos.chat_row = 1
+		pos.chat_col = math.floor((editor_width - chat_width) / 2)
+	elseif ui.chat_win.pos == "bottom" then
+		pos.chat_row = editor_height - total_height - 2 -- Leaves room for command
+		pos.chat_col = math.floor((editor_width - chat_width) / 2)
+	else -- "center" or default
+		pos.chat_row = math.floor((editor_height - total_height) / 2)
+		pos.chat_col = math.floor((editor_width - chat_width) / 2)
+	end
+
+	-- Calculate input window position based on layout
+	if ui.layout == "horizontal" then
+		-- Side by side layout
+		pos.input_row = pos.chat_row
+		pos.input_col = pos.chat_col + chat_width + gap
+		-- Adjust input height to match chat height in horizontal layout
+		input_height = chat_height
+	else -- "vertical" layout (default)
+		-- Input below chat
+		pos.input_row = pos.chat_row + chat_height + gap
+		pos.input_col = math.floor((editor_width - input_width) / 2)
+	end
+
+	return {
+		chat = {
+			width = chat_width,
+			height = chat_height,
+			row = pos.chat_row,
+			col = pos.chat_col,
+		},
+		input = {
+			width = input_width,
+			height = input_height,
+			row = pos.input_row,
+			pos.input_col,
+		},
+	}
+end
+
 -- Safely closes windows and deletes buffers
 local function close_chat_windows()
 	if state.chat_win and api.nvim_win_is_valid(state.chat_win) then
@@ -68,6 +134,7 @@ local function render_message(role, content)
 		api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
 		logger.info("State 'chat_buf' set to 'modifiable'")
 
+		local config = config_module.get_config()
 		local header = string.format("--- %s ---", string.upper(role))
 		local lines = vim.split(content, "\n")
 
@@ -133,7 +200,8 @@ local function render_stream_chunk(chunk)
 		api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
 
 		-- Auto-scroll
-		if state.chat_win and api.nvim_win_is_valid(state.chat_win) then
+		local config = config_module.get_config()
+		if config.ui.auto_scroll and state.chat_win and api.nvim_win_is_valid(state.chat_win) then
 			api.nvim_win_set_cursor(state.chat_win, { api.nvim_buf_line_count(state.chat_buf), 0 })
 		end
 	end)
@@ -243,70 +311,57 @@ local function send_current_input()
 end
 
 -- Creates and configures the user input window
-local function create_input_window(parent_win_id)
-	local width = api.nvim_win_get_width(parent_win_id)
-	local height = 3 -- A small, visible height for the input box
-	local row = api.nvim_win_get_height(parent_win_id) - height
-	local col = 0
+local function create_input_window(pos)
+	local config = config_module.get_config()
 
-	state.input_buf = api.nvim_create_buf(false, true)
+	state.input_buf = api.nvim_reate_buf(false, true)
 	api.nvim_buf_set_option(state.input_buf, "filetype", "ollama_chat_input")
 
 	local win_opts = {
-		relative = "win",
-		win = parent_win_id,
-		anchor = "SW",
-		width = width,
-		height = height,
-		row = row,
-		col = col,
+		relative = "editor",
+		width = pos.input.width,
+		height = pos.input.height,
+		row = pos.input.row,
+		col = pos.input.col,
 		style = "minimal",
-		border = config_module.get_config().ui.border_style,
+		border = config.ui.border_style,
 	}
-	state.input_win = api.nvim_open_win(state.input_buf, true, win_opts)
+
+	state.input_win = api.nvim_open_win(state.input_buf, false, win_opts)
 	api.nvim_win_set_option(state.input_win, "winhl", "Normal:Normal,FloatBorder:FloatBorder")
 
 	-- Keymaps for the input buffer
-	api.nvim_buf_set_keymap(
-		state.input_buf,
-		"n",
-		"q",
-		"<Cmd>lua require'ollama_chat.chat'.close()<CR>",
-		{ noremap = true, silent = true }
-	)
-	api.nvim_buf_set_keymap(
-		state.input_buf,
-		"i",
-		"<CR>",
-		"<Cmd>lua require'ollama_chat.chat'.send_input()<CR>",
-		{ noremap = true, silent = true }
-	)
+	local keymaps = {
+		{ "n", "q", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
+		{ "i", "<CR", "<Cmd>lua require'ollama_chat.chat'.send_input()<CR>" },
+		{ "n", "<CR>", "<Cmd>lua require'ollama_chat.chat'.send_input()<CR>" },
+		{ "i", "<C-c>", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
+		{ "n", "<Esc>", "<Cmd>lua require'ollama_chat.chat'.cose()<CR>" },
+	}
 
-	-- Additional keymaps for better UX
-	api.nvim_buf_set_keymap(
-		state.input_buf,
-		"n",
-		"<CR>",
-		"<Cmd>lua require'ollama_chat.chat'.send_input()<CR>",
-		{ noremap = true, silent = true }
-	)
+	for _, keymap in ipairs(keymaps) do
+		api.nvim_buf_set_keymap(state.input_buf, keymap[1], keymap[2], keymap[3], { noremap = true, silent = true })
+	end
 
-	-- Start in insert mode for immediate typing
-	vim.schedule(function()
-		if state.input_win and api.nvim_win_is_valid(state.input_win) then
-			api.nvim_set_current_win(state.input_win)
-			vim.cmd("startinsert")
-		end
-	end)
+	-- Add placeholder text
+	api.nvim_buf_set_lines(state.input_buf, 0, -1, false, { "Type your message here..." })
+
+	-- Clear placeholder on insert
+	api.nvim_create_autocmd({ "InsertEnter" }, {
+		buffer = state.input_buf,
+		callback = function()
+			local lines = api.nvim_buf_get_lines(state.input_buf, 0, -1, false)
+			if #lines == 1 and lines[1] == "Type your message here..." then
+				api.nvim_buf_set_lines(state.input_buf, 0, -1, false, { "" })
+			end
+		end,
+		once = true,
+	})
 end
 
 -- Creates and configures the main chat display window
-local function create_chat_window()
+local function create_chat_window(pos)
 	local config = config_module.get_config()
-	local width = config.ui.chat_win_width
-	local height = math.floor(api.nvim_get_option("lines") * 0.8)
-	local row = math.floor((api.nvim_get_option("lines") - height) / 2)
-	local col = math.floor((api.nvim_get_option("columns") - width) / 2)
 
 	state.chat_buf = api.nvim_create_buf(false, true)
 	api.nvim_buf_set_option(state.chat_buf, "filetype", "markdown")
@@ -314,15 +369,38 @@ local function create_chat_window()
 
 	local win_opts = {
 		relative = "editor",
-		width = width,
-		height = height,
-		row = row,
-		col = col,
+		width = pos.chat.width,
+		height = pos.chat.height,
+		row = pos.chat.row,
+		col = pos.chat.col,
 		style = "minimal",
 		border = config.ui.border_style,
 	}
-	state.chat_win = api.nvim_open_win(state.chat_buf, true, win_opts)
+	state.chat_win = api.nvim_open_win(state.chat_buf, false, win_opts)
 	api.nvim_win_set_option(state.chat_win, "winhl", "Normal:Normal,FloatBorder:FloatBorder")
+
+	-- Make chat window read-only with useful keymaps
+	local chat_keymaps = {
+		{ "n", "q", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
+		{ "n", "<Esc>", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
+		{ "n", "i", "<Cmd>lua require'ollama_chat.chat'.focus_input()<CR>" },
+		{ "n", "i", "<Cmd>lua require'ollama_chat.chat'.focus_input()<CR>" },
+	}
+
+	for _, keymap in ipairs(chat_keymaps) do
+		api.nvim_buf_set_keymap(state.chat_buf, keymap[1], keymap[2], keymap[3], { noremap = true, silent = true })
+	end
+end
+
+-- Public function to focus the input window
+function M.focus_input()
+	if state.input_win and api.nvim_win_is_valid(state.input_win) then
+		api.nvim_set_current_win(state.input_win)
+		local config = config_module.get_config()
+		if config.ui.start_in_insert_mode then
+			vim.cmd("startinsert")
+		end
+	end
 end
 
 -- Public function to open the chat interface
@@ -335,13 +413,21 @@ function M.open()
 		return
 	end
 
-	create_chat_window()
-	create_input_window(state.chat_win)
+	-- Calculate window positions based on configuration
+	local positions = calculate_window_pos()
 
+	-- Create windows
+	create_chat_window(positions)
+	create_input_window(positions)
+
+	-- Show welcome message
 	render_message(
 		"system",
 		"Welcome to Zomboco--I mean Ollama Chat.  Anything is possible at Zombo--er...Ollama Chat.  Type your prompt and press Enter.  Yeah."
 	)
+
+	-- Focus input window and start in insert mode if configured
+	M.focus_input()
 end
 
 -- Add context window management
@@ -406,5 +492,43 @@ function M.debug_state()
 	print("- Messages: " .. #state.session_messages)
 	print("- Buffers valid: " .. tostring(state.chat_buf and api.nvim_buf_is_valid(state.chat_buf)))
 end
+
+-- Function to resize windows dynamically
+function M.resize_windows()
+	if not (state.chat_win and state.input_win) then
+		return
+	end
+
+	local positions = calculate_window_pos()
+
+	if api.nvim_win_is_valid(state.chat_win) then
+		api.nvim_win_set_config(state.chat_win, {
+			relative = "editor",
+			width = positions.chat.width,
+			height = positions.chat.height,
+			row = positions.chat.row,
+			col = positions.chat.col,
+		})
+	end
+
+	if api.nvim_win_is_valid(state.input_win) then
+		api.nvim_win_set_config(state.input_win, {
+			relative = "editor",
+			width = positions.input.width,
+			height = positions.input.height,
+			row = positions.input.row,
+			col = positions.input.col,
+		})
+	end
+end
+
+-- Set up auto-resize on window resize
+vim.api.nvim_create_autocmd({ "VimResized" }, {
+	callback = function()
+		if state.chat_win and state.input_win then
+			M.resize_windows()
+		end
+	end,
+})
 
 return M
