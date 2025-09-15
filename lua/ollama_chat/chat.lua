@@ -117,8 +117,13 @@ local function render_stream_chunk(chunk)
 
 		-- Get the last line of the buffer
 		local last_line_idx = api.nvim_buf_attach_line_count(state.chat_buf) - 1
+		local last_line = api.nvim_buf_get - lines(state.chat_buf, last_line_idx, -1, false)[1] or ""
 
-		api.nvim_buf_set_text(state.chat_buf, last_line_idx, -1, -1, last_line_idx, vim.split(chunk, "\n"))
+		-- Append the new chunk to the last line
+		local new_content = last_line .. chunk
+		local new_lines = vim.split(new_content, "\n")
+
+		api.nvim_buf_set_lines(state.chat_buf, last_line_idx, -1, false, new_lines)
 		api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
 		-- Auto-scroll
 		api.nvim_win_set_cursor(state.chat_win, { api.nvim_buf_line_count(state.chat_buf), 0 })
@@ -152,25 +157,14 @@ local function send_current_input()
 	api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
 
 	local assistant_response_content = ""
-	local first_chunk = true
 
 	client.stream_chat({
 		model = config_module.get_config().default_model,
 		messages = state.session_messages,
 		on_chunk = function(chunk)
-			logger.info("Rendering chunk: " .. chunk)
 			local clean_chunk = chunk:gsub("<?think>", "")
 			if clean_chunk ~= "" then
-				if first_chunk then
-					-- Replace the placeholder with the first chunk of text
-					api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
-					local last_line_idx = api.nvim_buf_line_count(state.chat_buf) - 1
-					api.nvim_buf_set_lines(state.chat_buf, last_line_idx, -1, false, { clean_chunk })
-					api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
-					first_chunk = false
-				else
-					render_stream_chunk(clean_chunk)
-				end
+				render_stream_chunk(clean_chunk)
 				assistant_response_content = assistant_response_content .. clean_chunk
 			end
 		end,

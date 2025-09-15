@@ -7,7 +7,7 @@ local logger = require("ollama_chat.logger")
 
 local M = {}
 
--- Constructs base URL for the Ollama API from configuration
+-- Constructs base URL for thTestinge Ollama API from configuration
 -- @return string The base URL ('http://0.0.0.0:11434' by default)
 local function get_base_url()
 	local config = config_module.get_config()
@@ -38,15 +38,17 @@ local function process_stream_data(data, on_chunk, on_finish, on_error)
 		buffer = buffer .. chunk
 		local lines = vim.split(buffer, "\n", { plain = true })
 
-		-- Keep the last potentially incomplete line in buffer
-		buffer = lines[#lines] or ""
+		if #lines == 0 then
+			return
+		end
 
-		for i = 1, #lines - 1 do
-			local line = lines[i]
-			if line ~= "" then
+		-- Assume the last line might be incomplete
+		buffer = table.remove(lines, #lines)
+
+		for _, line in ipairs(lines) do
+			if line and line ~= "" then
 				local ok, decoded = pcall(vim.json.decode, line)
 				if ok then
-					-- process decoded JSON
 					if decoded.message and decoded.message.content then
 						on_chunk(decoded.message.content)
 					elseif decoded.done then
@@ -90,7 +92,7 @@ function M.stream_chat(params)
 	logger.info("stream_chat: Body - " .. body_json)
 
 	-- Create an instance of the stream processor using the existing helper function
-	local process_chunk = process_stream_data(nil, params.on_chunk, params.on_finish, params.on_error)
+	local process_chunk = process_stream_data(body_json, params.on_chunk, params.on_finish, params.on_error)
 	Job:new({
 		command = "curl",
 		args = {
