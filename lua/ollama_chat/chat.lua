@@ -48,8 +48,8 @@ local function calculate_window_pos()
 	-- Calculate base position for the chat window
 	if type(ui.chat_win_pos) == "table" then
 		-- User specified exact coordinates
-		pos.chat_row = ui.chat_win.pos.row
-		pos.chat_col = ui.chat_win.pos.col
+		pos.chat_row = ui.chat_win_pos.row
+		pos.chat_col = ui.chat_win_pos.col
 	elseif ui.chat_win_pos == "top" then
 		pos.chat_row = 1
 		pos.chat_col = math.floor((editor_width - chat_width) / 2)
@@ -333,10 +333,10 @@ local function create_input_window(pos)
 	-- Keymaps for the input buffer
 	local keymaps = {
 		{ "n", "q", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
-		{ "i", "<CR", "<Cmd>lua require'ollama_chat.chat'.send_input()<CR>" },
+		{ "i", "<CR>", "<Cmd>lua require'ollama_chat.chat'.send_input()<CR>" },
 		{ "n", "<CR>", "<Cmd>lua require'ollama_chat.chat'.send_input()<CR>" },
 		{ "i", "<C-c>", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
-		{ "n", "<Esc>", "<Cmd>lua require'ollama_chat.chat'.cose()<CR>" },
+		{ "n", "<Esc>", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
 	}
 
 	for _, keymap in ipairs(keymaps) do

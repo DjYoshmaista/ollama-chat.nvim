@@ -5,7 +5,7 @@ local Path = require("plenary.path")
 local M = {}
 local cached_config = nil
 
--- Suppoorted config formats: JSON, YAML, Python-like
+-- Supported config formats: JSON, YAML, Python-like
 -- Holds the merged, final configuration - initialized with some defaults in case setup() isn't called
 local config = {
 	ollama_host = "0.0.0.0",
@@ -124,24 +124,25 @@ local function validate_config(conf)
 	end
 
 	-- Validate UI
-	if not conf.ui.chat_win.width or type(conf.ui.chat_win.width) ~= "number" then
-		return false, "Invalid or missing value for 'ui' entry 'chat_win.width'"
+	if not conf.ui.chat_win_width or type(conf.ui.chat_win_width) ~= "number" then
+		return false, "Invalid or missing value for 'ui' entry 'chat_win_width'"
 	end
-	if not conf.ui.chat_win.height or type(conf.ui.chat_win.height) ~= "number" then
-		return false, "Invalid or missing value for 'ui' entry 'chat_win.height'"
+	if not conf.ui.chat_win_height or type(conf.ui.chat_win_height) ~= "number" then
+		return false, "Invalid or missing value for 'ui' entry 'chat_win_height'"
 	end
 	if not conf.ui.input_win_height or type(conf.ui.input_win_height) ~= "number" then
 		return false, "Invalid or missing value for 'ui' entry 'input_win_height'"
 	end
-	if not conf.ui.input_win_width or type(conf.ui.input_win_width) ~= "number" then
-		return false, "Invalid or missing value for 'ui' entry 'input_win_width'"
+	-- Note: input_win_width can be nil, so we only validate if it exists
+	if conf.ui.input_win_width ~= nil and type(conf.ui.input_win_width) ~= "number" then
+		return false, "Invalid value for 'ui' entry 'input_win_width'"
 	end
 	if not conf.ui.border_style or type(conf.ui.border_style) ~= "string" then
 		return false, "Invalid or missing value for 'ui' entry 'border_style'"
 	end
 
 	-- Validate position
-	if conf.ui.chat_win_position then
+	if conf.ui.chat_win_pos then
 		local pos = conf.ui.chat_win_pos
 		if type(pos) == "string" then
 			local valid_positions = { center = true, top = true, bottom = true }
@@ -198,16 +199,16 @@ function M.setup(user_opts)
 
 		-- Window dimensions
 		if ui.window_width then
-			config.ui.chat_win.width = ui.window_width
+			config.ui.chat_win_width = ui.window_width
 		end
 		if ui.window_height then
-			config.ui.chat_win.height = ui.window_height
+			config.ui.chat_win_height = ui.window_height
 		end
-		if ui.chat_win.width then
-			config.ui.chat_win.width = ui.chat_win.width
+		if ui.chat_win_width then
+			config.ui.chat_win_width = ui.chat_win_width
 		end
-		if ui.chat_win.height then
-			config.ui.chat_win.height = ui.chat_win.height
+		if ui.chat_win_height then
+			config.ui.chat_win_height = ui.chat_win_height
 		end
 		if ui.input_win_width then
 			config.ui.input_win_width = ui.input_win_width
@@ -218,7 +219,7 @@ function M.setup(user_opts)
 
 		-- Window positioning and layout
 		if ui.position then
-			config.ui.chat_win_position = ui.position
+			config.ui.chat_win_pos = ui.position
 		end
 		if ui.chat_win_pos then
 			config.ui.chat_win_pos = ui.chat_win_pos
@@ -286,7 +287,7 @@ function M.save_config(new_config)
 	local user_config_path = Path:new(vim.fn.stdpath("config"), "user_config.json")
 
 	-- Ensure the dir exists
-	user_config_path:dir():mkdir({ parents = true })
+	user_config_path:parent():mkdir({ parents = true })
 
 	local success, err = pcall(function()
 		local config_string = vim.json.encode(new_config, { pretty = true })
