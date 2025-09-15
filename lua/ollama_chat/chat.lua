@@ -310,6 +310,55 @@ local function send_current_input()
 	})
 end
 
+-- Public function to dynamically resize the chat output window
+--  @param delta_height number - Amount to change height by (positive or negative)
+--  @param delta_width number - Amount to change width by (positive or negative)
+function M.resize_chat_window(delta_height, delta_width)
+	if not (state.chat_win and api.nvim_win_is_valid(state.chat_win)) then
+		logger.warn("Cannot resize: Chat window is not open or invalid")
+		return
+	end
+
+	-- Get current config and window dimensions
+	local config = config_module.get_config()
+	local current_width = config.ui.chat_win_width
+	local current_height = config.ui.chat_win_height
+
+	-- Calculate new dimensions
+	new_height = math.max(10, new_height) -- Minimum 10 lines
+	new_width = math.max(20, new_width) -- Minimum 20 columns
+
+	-- Update the global UI configuration
+	config.ui.chat_win_width = new_width
+	config.ui.chat_win_height = new_height
+
+	-- Recalculate positions based on the new config
+	local positions = calculate_window_pos()
+
+	-- Apply new size to the chat window
+	api.nvim_win_set_config(
+		state.chat_win,
+		{
+			width = positions.chat.width,
+			heigh = positions.chat.height,
+			row = positions.chat.row,
+			col = positions.chat.col,
+		}
+	)
+
+	-- Also resize the input window if it's in vertical layout to match new chat width
+	if config.ui.layout == "vertical" and state.input_win and api.nvim_win_is - valid(state.input_win) then
+		api.nvim_win_set_config(state.input_win, {
+			width = positions.input.width, -- Will match new chat width
+			height = positions.input.height,
+			row = positions.input.row,
+			col = positions.input.col,
+		})
+	end
+
+	logger.info(string.format("Chat window resized to %dx%d", new_width, new_height))
+end
+
 -- Creates and configures the user input window
 local function create_input_window(pos)
 	local config = config_module.get_config()
@@ -337,6 +386,11 @@ local function create_input_window(pos)
 		{ "n", "<CR>", "<Cmd>lua require'ollama_chat.chat'.send_input()<CR>" },
 		{ "i", "<C-c>", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
 		{ "n", "<Esc>", "<Cmd>lua require'ollama_chat.chat'.close()<CR>" },
+		{ "i", "<C-j>", "<C-o>o" }, -- Opens new line below in insert mode
+		{ "n", "<C-=>", "<Cmd>lua require'ollama_chat.chat'.resize_chat_window(2, 0)<CR>" }, --resizes chat window plus two units on the Y-Axis
+		{ "n", "<C-->", "<Cmd>lua require'ollama_chat.chat'.resize_chat_window(-2, 0)<CR>" }, --resizes chat window negative two units on the Y-Axis
+		{ "n", "<C-S-=>", "<Cmd>lua require'ollama_chat.chat'.resize_chat_window(0, 2)<CR>" }, --resizes chat window plus two units on the X-Axis
+		{ "n", "<C-S-->", "<Cmd>lua require'ollama_chat.chat'.resize_chat_window(0, -2)<CR>" }, --resizes chat window negative two units on the X-Axis
 	}
 
 	for _, keymap in ipairs(keymaps) do
