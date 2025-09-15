@@ -20,6 +20,7 @@ local state = {
 	input_win = nil,
 	session_messages = {}, -- Stores { role = "...", content = "..." }
 	is_thinking = false, -- Prevents sending new messages while waiting for a response
+	assistant_response_started = false,
 }
 logger.info("Ollama state table initialized")
 
@@ -27,19 +28,19 @@ logger.info("Ollama state table initialized")
 local function close_chat_windows()
 	if state.chat_win and api.nvim_win_is_valid(state.chat_win) then
 		api.nvim_win_close(state.chat_win, true)
-		logger.info("Ollama state 'chat_win' initialized")
+		logger.info("Ollama state 'chat_win' closed")
 	end
 	if state.input_win and api.nvim_win_is_valid(state.input_win) then
 		api.nvim_win_close(state.input_win, true)
-		logger.info("Ollama state 'input_win' initialized")
+		logger.info("Ollama state 'input_win' closed")
 	end
 	if state.chat_buf and api.nvim_buf_is_valid(state.chat_buf) then
 		api.nvim_buf_delete(state.chat_buf, { force = true })
-		logger.info("Ollama state 'chat_buf' initialized")
+		logger.info("Ollama state 'chat_buf' closed")
 	end
 	if state.input_buf and api.nvim_buf_is_valid(state.input_buf) then
 		api.nvim_buf_delete(state.input_buf, { force = true })
-		logger.info("Ollama stat 'input_buf' initialized")
+		logger.info("Ollama stat 'input_buf' closed")
 	end
 
 	-- Reset state
@@ -49,6 +50,7 @@ local function close_chat_windows()
 	state.input_win = nil
 	state.session_messages = {}
 	state.is_thinking = false
+	state.assistant_response_started = false
 	logger.info("Ollama states reset.  Chat window closed.")
 end
 
@@ -72,18 +74,20 @@ local function render_message(role, content)
 		-- Add a blank line for spacing if buffer is not empty
 		if api.nvim_buf_line_count(state.chat_buf) > 1 then
 			api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, { "" })
-			logger.debug("chat_buf value currently: " .. state.chat_buf)
+			logger.debug("Added blank line to chat_buf")
 		end
 
 		api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, { header })
-		logger.debug("chat_buf state changed.  Current value: " .. state.chat_buf)
+		logger.debug("chat_buf state changed.  Current value: " .. header)
 		api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, lines)
-		logger.debug("chat_buf state changed.  Current value: " .. state.chat_buf)
+		logger.debug("Added content lines to chat_buf")
 		api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
-		logger.debug("chat_buf state changed to no longer be modifiable")
+		logger.debug("chat_buf set to non-modifiable")
 
 		-- Auto-scroll to the bottom
-		api.nvim_win_set_cursor(state.chat_win, { api.nvim_buf_line_count(state.chat_buf), 0 })
+		if state.chat_win and api.nvim_win_is_valid(state.chat_win) then
+			api.nvim_win_set_cursor(state.chat_win, { api.nvim_buf_line_count(state.chat_buf), 0 })
+		end
 	end)
 end
 
@@ -108,8 +112,10 @@ end
 -- Appends a streaming chunk of context to the last message in the chat buffer
 -- 	@param chunk string - The content chunk from the stream
 local function render_stream_chunk(chunk)
+	logger.info("render_stream_chunk called with '" .. chunk .. "'")
 	vim.schedule(function()
 		if not (state.chat_buf and api.nvim_buf_is_valid(state.chat_buf)) then
+			logger.error("Chat buffer invalid when trying to render the stream chunk")
 			return
 		end
 
@@ -125,8 +131,11 @@ local function render_stream_chunk(chunk)
 
 		api.nvim_buf_set_lines(state.chat_buf, last_line_idx, -1, false, new_lines)
 		api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
+
 		-- Auto-scroll
-		api.nvim_win_set_cursor(state.chat_win, { api.nvim_buf_line_count(state.chat_buf), 0 })
+		if state.chat_win and api.nvim_win_is_valid(state.chat_win) then
+			api.nvim_win_set_cursor(state.chat_win, { api.nvim_buf_line_count(state.chat_buf), 0 })
+		end
 	end)
 end
 
@@ -150,11 +159,17 @@ local function send_current_input()
 	table.insert(state.session_messages, { role = "user", content = prompt })
 	render_message("user", prompt)
 	state.is_thinking = true
+	state.assistant_response_started = false
 
 	-- Prepare for assistant's response
-	api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
-	api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, { "--- ASSISTANT ---" })
-	api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
+	vim.schedule(function()
+		if state.chat_buf and api.nvim_buf_is_valid(state.chat_buf) then
+			api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
+			api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, { "--- ASSISTANT ---", "" })
+			api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
+			logger.info("Added ASSISTANT header to chat buffer")
+		end
+	end)
 
 	local assistant_response_content = ""
 
@@ -162,19 +177,34 @@ local function send_current_input()
 		model = config_module.get_config().default_model,
 		messages = state.session_messages,
 		on_chunk = function(chunk)
-			local clean_chunk = chunk:gsub("<?think>", "")
+			logger.info("on_chunk called with: '" .. chunk .. "'")
+			-- Clean chunk and render
+			local clean_chunk = chunk
+			if chunk:match("^</?think>") then
+				logger.debug("Filtering out think tag: " .. chunk)
+				clean_chunk = chunk:gsub("</?think>", "")
+			end
+
 			if clean_chunk ~= "" then
+				logger.info("Rendering clean chunk: '" .. clean_chunk .. "'")
 				render_stream_chunk(clean_chunk)
 				assistant_response_content = assistant_response_content .. clean_chunk
+				state.assistant_response_started = true
+			else
+				logger.debug("Skipping empty chunk after cleaning")
 			end
 		end,
 		on_finish = function(_)
+			logger.info("Stream finished. Full response: " .. assistant_response_content)
 			table.insert(state.session_messages, { role = "assistant", content = assistant_response_content })
 			state.is_thinking = false
+			state.assistant_response_started = false
 		end,
 		on_error = function(error_msg)
+			logger.error("Stream error: " .. tostring(error_msg))
 			render_message("error", error_msg)
 			state.is_thinking = false
+			state.assistant_response_started = false
 		end,
 	})
 end

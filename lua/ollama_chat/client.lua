@@ -109,7 +109,7 @@ function M.stream_chat(params)
 		on_stdout = function(err, data)
 			if data and data ~= "" then
 				logger.info("RAW CHUNK RECEIVED: " .. tostring(data))
-				process_chunk(data)
+				process_chunk(data, params.on_chunk, params.on_finish, params.on_error)
 			elseif err then
 				logger.error("Error on stdout: " .. tostring(err))
 				params.on_error("Error receiving data: " .. tostring(err))
@@ -117,13 +117,13 @@ function M.stream_chat(params)
 			end
 		end,
 		on_stderr = function(err, data)
-			if err then
-				logger.error("Error on stderr: " .. tostring(err))
-				params.on_error("Error during request: " .. tostring(err))
-				return
-			elseif data and data ~= "" then
+			if data and data ~= "" then
 				logger.error("curl stderr: " .. data)
 				params.on_error("Request Error: " .. data)
+			elseif err then
+				logger.error("Error on stederr: " .. tostring(err))
+				params.on_error("Error during request: " .. tostring(err))
+				return
 			end
 		end,
 	}):start()
