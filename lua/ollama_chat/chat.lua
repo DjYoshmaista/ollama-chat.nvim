@@ -108,35 +108,18 @@ end
 -- Appends a streaming chunk of context to the last message in the chat buffer
 -- 	@param chunk string - The content chunk from the stream
 local function render_stream_chunk(chunk)
-	logger.info("Rendering stream chunk" .. chunk)
 	vim.schedule(function()
 		if not (state.chat_buf and api.nvim_buf_is_valid(state.chat_buf)) then
-			vim.notify("render_stream_chunk: Invalid chat buffer!", vim.log.levels.ERROR)
-			logger.info("render_stream_chunk: Invalid chat buffer!")
 			return
 		end
 
-		local last_line_idx = api.nvim_buf_line_count(state.chat_buf) - 1
-		local last_line = api.nvim_buf_get_lines(state.chat_buf, last_line_idx, -1, false)[1] or ""
-
-		-- Split chunk by newlines to handle multi-line chunks correctly
-		local new_lines = vim.split(chunk, "\n", { plain = true })
 		api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
 
-		if #new_lines == 1 then
-			-- Append to the current last line
-			api.nvim_buf_set_lines(state.chat_buf, last_line_idx, -1, false, { last_line .. new_lines[1] })
-		else
-			-- Handle multiple new lines in the chunk
-			-- First, append the first part to the existing last line
-			api.nvim_buf_set_lines(state.chat_buf, last_line_idx, -1, false, { last_line .. new_lines[1] })
-			-- Then, insert the remaining lines
-			table.remove(new_lines, 1)
-			-- If the last line just modified was empty, for instance continuing a previous line, add newline before next line
-			api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, new_lines)
-		end
-		api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
+		-- Get the last line of the buffer
+		local last_line_idx = api.nvim_buf_attach_line_count(state.chat_buf) - 1
 
+		api.nvim_buf_set_text(state.chat_buf, last_line_idx, -1, -1, last_line_idx, vim.split(chunk, "\n"))
+		api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
 		-- Auto-scroll
 		api.nvim_win_set_cursor(state.chat_win, { api.nvim_buf_line_count(state.chat_buf), 0 })
 	end)
@@ -160,35 +143,36 @@ local function send_current_input()
 
 	-- Add user message to history and render it
 	table.insert(state.session_messages, { role = "user", content = prompt })
+	render_message("user", prompt)
 	state.is_thinking = true
 
 	-- Prepare for assistant's response
-	render_message("user", prompt)
-
-	-- Insert placeholder for assistant's response, creating a clean space for streaming
 	api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
 	api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, { "--- ASSISTANT ---" })
-	api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, { "..." }) -- Placeholder
 	api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
 
 	local assistant_response_content = ""
+	local first_chunk = true
 
 	client.stream_chat({
 		model = config_module.get_config().default_model,
 		messages = state.session_messages,
 		on_chunk = function(chunk)
-			vim.notify("ON_CHUNK CALLED WITH : [" .. chunk .. "]", vim.log.levels.INFO) -- Debug
-			if assistant_response_content == "" then -- First chunk
-				-- Overwrite the "..." placeholder
-				local last_line_idx = api.nvim_buf_line_count(state.chat_buf) - 1
-				api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
-
-				api.nvim_buf_set_lines(state.chat_buf, last_line_idx, -1, false, { chunk })
-				api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
-			else
-				render_stream_chunk(chunk)
+			logger.info("Rendering chunk: " .. chunk)
+			local clean_chunk = chunk:gsub("<?think>", "")
+			if clean_chunk ~= "" then
+				if first_chunk then
+					-- Replace the placeholder with the first chunk of text
+					api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
+					local last_line_idx = api.nvim_buf_line_count(state.chat_buf) - 1
+					api.nvim_buf_set_lines(state.chat_buf, last_line_idx, -1, false, { clean_chunk })
+					api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
+					first_chunk = false
+				else
+					render_stream_chunk(clean_chunk)
+				end
+				assistant_response_content = assistant_response_content .. clean_chunk
 			end
-			assistant_response_content = assistant_response_content .. chunk
 		end,
 		on_finish = function(_)
 			table.insert(state.session_messages, { role = "assistant", content = assistant_response_content })

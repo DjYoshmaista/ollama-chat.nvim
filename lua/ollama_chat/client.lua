@@ -94,6 +94,7 @@ function M.stream_chat(params)
 	Job:new({
 		command = "curl",
 		args = {
+			"-s",
 			"-X",
 			"POST",
 			url,
@@ -103,14 +104,22 @@ function M.stream_chat(params)
 			body_json,
 			"--no-buffer", -- This flag is CRUCIAL for streaming responses
 		},
-		on_stdout = function(data)
+		on_stdout = function(err, data)
 			if data and data ~= "" then
 				logger.info("RAW CHUNK RECEIVED: " .. tostring(data))
 				process_chunk(data)
+			elseif err then
+				logger.error("Error on stdout: " .. tostring(err))
+				params.on_error("Error receiving data: " .. tostring(err))
+				return
 			end
 		end,
-		on_stderr = function(data)
-			if data and data ~= "" then
+		on_stderr = function(err, data)
+			if err then
+				logger.error("Error on stderr: " .. tostring(err))
+				params.on_error("Error during request: " .. tostring(err))
+				return
+			elseif data and data ~= "" then
 				logger.error("curl stderr: " .. data)
 				params.on_error("Request Error: " .. data)
 			end
