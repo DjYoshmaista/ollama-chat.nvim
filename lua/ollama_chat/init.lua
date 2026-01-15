@@ -37,4 +37,9 @@ function M.send_input()
 	require("ollama_chat.chat").send_input()
 end
 
+function M.send_buffer()
+	require("ollama_chat.logger").info("Sending buffer from command")
+	require("ollama_chat.chat").send_buffer_content()
+end
+
 return M

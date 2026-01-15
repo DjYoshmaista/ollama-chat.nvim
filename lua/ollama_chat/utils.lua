@@ -76,4 +76,10 @@ function M.create_floating_win(bufnr, enter, opts)
 	return win_id
 end
 
+function M.get_current_buffer_content()
+	local bufnr = api.nvim_get_current_buf()
+	local lines = api.nvim_buf_get_lines(bufnr, 0, -1, false)
+	return table.concat(lines, "\n")
+end
+
 return M
