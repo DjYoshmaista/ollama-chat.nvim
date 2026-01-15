@@ -12,6 +12,8 @@ local M = {}
 
 logger.info("Ollama 'M' module initialized")
 
+local utils = require("ollama_chat.utils")
+
 -- Internal state to manage UI elements and conversation history
 local state = {
 	chat_buf = nil,
@@ -25,6 +27,115 @@ local state = {
 	last_positions = nil, -- Store last window positions for restoration
 }
 logger.info("Ollama state table initialized")
+
+function M.send_buffer_content()
+	if state.is_thinking then
+		logger.warn("Already thinking, ignoring input")
+		return
+	end
+
+	-- If the chat window is not open, open it first
+	if not (state.chat_win and api.nvim_win_is_valid(state.chat_win)) then
+		M.open()
+		-- Give it a moment to open before proceeding
+		vim.defer_fn(function()
+			M.send_buffer_content()
+		end, 100)
+		return
+	end
+
+	local buffer_content = utils.get_current_buffer_content()
+
+	if buffer_content:gsub("%s", "") == "" then
+		logger.info("Empty buffer, ignoring")
+		return
+	end
+
+	logger.info("Sending buffer content")
+
+	-- Add user message to history and render it
+	local prompt = "Using the following content:\n\n" .. buffer_content
+	table.insert(state.session_messages, { role = "user", content = prompt })
+	render_message("user", prompt)
+
+	-- Set thinking state
+	state.is_thinking = true
+	state.assistant_response_started = false
+	logger.info("Set is_thinking to true")
+
+	-- Prepare for assistant's response
+	vim.schedule(function()
+		if state.chat_buf and api.nvim_buf_is_valid(state.chat_buf) then
+			api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
+			api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, { "", "--- ASSISTANT ---", "" })
+			api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
+			logger.info("Added ASSISTANT header to chat buffer")
+		end
+	end)
+
+	local assistant_response_content = ""
+
+	-- Add error handling wrapper
+	local function safe_callback(callback_name, callback_func)
+		return function(...)
+			local success, err = pcall(callback_func, ...)
+			if not success then
+				logger.error("Error in " .. callback_name .. ": " .. tostring(err))
+				state.is_thinking = false
+				render_message("error", "Error in " .. callback_name .. ": " .. tostring(err))
+			end
+		end
+	end
+
+	client.stream_chat({
+		model = config_module.get_config().default_model,
+		messages = state.session_messages,
+		on_chunk = safe_callback("on_chunk", function(chunk)
+			logger.info("on_chunk called with: '" .. chunk .. "'")
+
+			-- Clean chunk and render
+			local clean_chunk = chunk
+			if chunk:match("^</?think>") then
+				logger.debug("Filtering out think tag: " .. chunk)
+				clean_chunk = chunk:gsub("</?think>", "")
+			end
+
+			if clean_chunk ~= "" then
+				logger.info("Rendering clean chunk: '" .. clean_chunk .. "'")
+				render_stream_chunk(clean_chunk)
+				assistant_response_content = assistant_response_content .. clean_chunk
+				state.assistant_response_started = true
+			else
+				logger.debug("Skipping empty chunk after cleaning")
+			end
+		end),
+		on_finish = safe_callback("on_finish", function(response)
+			logger.info("Stream finished. Full response length: " .. #assistant_response_content)
+
+			-- Only add to session messages if we got content
+			if assistant_response_content ~= "" then
+				table.insert(state.session_messages, { role = "assistant", content = assistant_response_content })
+				logger.info("Added assistant response to session messages")
+			else
+				logger.warn("No assistant content received")
+			end
+
+			-- Reset thinking state
+			state.is_thinking = false
+			state.assistant_response_started = false
+			logger.info("Reset is_thinking to false - ready for next input")
+		end),
+		on_error = safe_callback("on_error", function(error_msg)
+			logger.error("Stream error: " .. tostring(error_msg))
+			render_message("error", "Stream error: " .. tostring(error_msg))
+
+			-- Reset thinking state on error
+			state.is_thinking = false
+			state.assistant_response_started = false
+			logger.info("Reset is_thinking to false due to error")
+		end),
+	})
+end
 
 -- Calculate window positions based on configuration
 --  @return table - Window positioning data
