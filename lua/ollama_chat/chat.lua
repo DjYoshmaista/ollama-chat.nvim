@@ -25,8 +25,15 @@ local state = {
 	assistant_response_started = false,
 	windows_hidden = false, -- Track if windows are hidden
 	last_positions = nil, -- Store last window positions for restoration
+	attachments = {}, -- Stores attached buffer contents keyed by filename
 }
 logger.info("Ollama state table initialized")
+
+-- Forward declarations
+local render_message
+local render_stream_chunk
+local create_chat_window
+local create_input_window
 
 function M.send_buffer_content()
 	if state.is_thinking then
@@ -34,107 +41,58 @@ function M.send_buffer_content()
 		return
 	end
 
-	-- If the chat window is not open, open it first
-	if not (state.chat_win and api.nvim_win_is_valid(state.chat_win)) then
-		M.open()
-		-- Give it a moment to open before proceeding
-		vim.defer_fn(function()
-			M.send_buffer_content()
-		end, 100)
-		return
-	end
-
+	-- 1. Capture content from the current buffer (before switching context)
 	local buffer_content = utils.get_current_buffer_content()
+	local filename = vim.fn.expand("%:t") -- Get filename with extension
+	if filename == "" then
+		filename = "Untitled"
+	end
 
 	if buffer_content:gsub("%s", "") == "" then
 		logger.info("Empty buffer, ignoring")
 		return
 	end
 
-	logger.info("Sending buffer content")
+	-- 2. Store as attachment
+	state.attachments[filename] = buffer_content
+	logger.info("Stored attachment: " .. filename)
 
-	-- Add user message to history and render it
-	local prompt = "Using the following content:\n\n" .. buffer_content
-	table.insert(state.session_messages, { role = "user", content = prompt })
-	render_message("user", prompt)
+	-- 3. Open Chat Interface (if not open)
+	if not (state.chat_win and api.nvim_win_is_valid(state.chat_win)) then
+		M.open()
+		-- Give it a moment to render before inserting text
+		vim.defer_fn(function()
+			M.insert_attachment_token(filename)
+		end, 100)
+	else
+		M.focus_input()
+		M.insert_attachment_token(filename)
+	end
+end
 
-	-- Set thinking state
-	state.is_thinking = true
-	state.assistant_response_started = false
-	logger.info("Set is_thinking to true")
-
-	-- Prepare for assistant's response
-	vim.schedule(function()
-		if state.chat_buf and api.nvim_buf_is_valid(state.chat_buf) then
-			api.nvim_buf_set_option(state.chat_buf, "modifiable", true)
-			api.nvim_buf_set_lines(state.chat_buf, -1, -1, false, { "", "--- ASSISTANT ---", "" })
-			api.nvim_buf_set_option(state.chat_buf, "modifiable", false)
-			logger.info("Added ASSISTANT header to chat buffer")
-		end
-	end)
-
-	local assistant_response_content = ""
-
-	-- Add error handling wrapper
-	local function safe_callback(callback_name, callback_func)
-		return function(...)
-			local success, err = pcall(callback_func, ...)
-			if not success then
-				logger.error("Error in " .. callback_name .. ": " .. tostring(err))
-				state.is_thinking = false
-				render_message("error", "Error in " .. callback_name .. ": " .. tostring(err))
-			end
-		end
+-- Helper to insert the attachment token into the input buffer
+function M.insert_attachment_token(filename)
+	if not (state.input_buf and api.nvim_buf_is_valid(state.input_buf)) then
+		return
 	end
 
-	client.stream_chat({
-		model = config_module.get_config().default_model,
-		messages = state.session_messages,
-		on_chunk = safe_callback("on_chunk", function(chunk)
-			logger.info("on_chunk called with: '" .. chunk .. "'")
+	local token = string.format('--[Buffer "%s"]--', filename)
+	local lines = api.nvim_buf_get_lines(state.input_buf, 0, -1, false)
+	local last_line = lines[#lines]
 
-			-- Clean chunk and render
-			local clean_chunk = chunk
-			if chunk:match("^</?think>") then
-				logger.debug("Filtering out think tag: " .. chunk)
-				clean_chunk = chunk:gsub("</?think>", "")
-			end
-
-			if clean_chunk ~= "" then
-				logger.info("Rendering clean chunk: '" .. clean_chunk .. "'")
-				render_stream_chunk(clean_chunk)
-				assistant_response_content = assistant_response_content .. clean_chunk
-				state.assistant_response_started = true
-			else
-				logger.debug("Skipping empty chunk after cleaning")
-			end
-		end),
-		on_finish = safe_callback("on_finish", function(response)
-			logger.info("Stream finished. Full response length: " .. #assistant_response_content)
-
-			-- Only add to session messages if we got content
-			if assistant_response_content ~= "" then
-				table.insert(state.session_messages, { role = "assistant", content = assistant_response_content })
-				logger.info("Added assistant response to session messages")
-			else
-				logger.warn("No assistant content received")
-			end
-
-			-- Reset thinking state
-			state.is_thinking = false
-			state.assistant_response_started = false
-			logger.info("Reset is_thinking to false - ready for next input")
-		end),
-		on_error = safe_callback("on_error", function(error_msg)
-			logger.error("Stream error: " .. tostring(error_msg))
-			render_message("error", "Stream error: " .. tostring(error_msg))
-
-			-- Reset thinking state on error
-			state.is_thinking = false
-			state.assistant_response_started = false
-			logger.info("Reset is_thinking to false due to error")
-		end),
-	})
+	if last_line and last_line ~= "" then
+		-- Append on a new line
+		api.nvim_buf_set_lines(state.input_buf, -1, -1, false, { token })
+	else
+		-- Overwrite the last empty line
+		api.nvim_buf_set_lines(state.input_buf, #lines - 1, -1, false, { token })
+	end
+	
+	-- Move cursor to end
+	if state.input_win and api.nvim_win_is_valid(state.input_win) then
+		local new_line_count = api.nvim_buf_line_count(state.input_buf)
+		api.nvim_win_set_cursor(state.input_win, { new_line_count, 0 })
+	end
 end
 
 -- Calculate window positions based on configuration
@@ -373,7 +331,7 @@ end
 -- Appends a message to the chat buffer
 --  @param role string "user" or "assistant"
 --  @param content string - The message content
-local function render_message(role, content)
+render_message = function(role, content)
 	logger.info("Appending message to the chat buffer.  Message: " .. content)
 	vim.schedule(function()
 		if not (state.chat_buf and api.nvim_buf_is_valid(state.chat_buf)) then
@@ -428,7 +386,7 @@ end
 
 -- Appends a streaming chunk of context to the last message in the chat buffer
 -- 	@param chunk string - The content chunk from the stream
-local function render_stream_chunk(chunk)
+render_stream_chunk = function(chunk)
 	logger.info("render_stream_chunk called with '" .. chunk .. "'")
 	vim.schedule(function()
 		if not (state.chat_buf and api.nvim_buf_is_valid(state.chat_buf)) then
@@ -472,14 +430,49 @@ local function send_current_input()
 		return
 	end
 
-	logger.info("Sending input: " .. prompt)
+	logger.info("Processing input: " .. prompt)
 
 	-- Clear input buffer
 	api.nvim_buf_set_lines(state.input_buf, 0, -1, false, { "" })
 
+	-- Process attachments
+	local display_prompt = prompt
+	local full_prompt = prompt
+
+	for filename, content in pairs(state.attachments) do
+		local token = string.format('--[Buffer "%s"]--', filename)
+		-- Check if the token exists in the prompt (exact string match)
+		if full_prompt:find(token, 1, true) then
+			-- Replace token with full content in the prompt sent to LLM
+			-- Escape special characters in replacement string is tricky with gsub,
+			-- so we might need a safer way if content has %
+			local expanded_header = string.format("\n\n--- Content of %s ---\n", filename)
+			local expanded_footer = string.format("\n--- End of %s ---\n", filename)
+			
+			-- We split the prompt by token to safely insert content
+			local parts = vim.split(full_prompt, token, { plain = true })
+			if #parts >= 2 then
+				-- Reassemble with content
+				-- Note: This handles the first occurrence. If multiple, we might need a loop or global gsub with function
+				-- For simplicity, let's assume one occurrence per file or use a simple substitution
+				-- using a function in gsub avoids % escaping issues in the replacement string
+				full_prompt = full_prompt:gsub(vim.pesc(token), function() return expanded_header .. content .. expanded_footer end)
+			end
+			
+			logger.info("Expanded attachment: " .. filename)
+		else
+			logger.info("Attachment token not found for: " .. filename .. " (assumed deleted)")
+		end
+	end
+
+	-- Clear attachments after processing
+	state.attachments = {}
+
 	-- Add user message to history and render it
-	table.insert(state.session_messages, { role = "user", content = prompt })
-	render_message("user", prompt)
+	-- 'full_prompt' includes the large buffer content for the LLM
+	table.insert(state.session_messages, { role = "user", content = full_prompt })
+	-- 'display_prompt' keeps the token for cleaner UI
+	render_message("user", display_prompt)
 
 	-- Set thinking state
 	state.is_thinking = true
@@ -659,7 +652,7 @@ function M.close_with_confirmation()
 end
 
 -- Creates and configures the main chat display window
-local function create_chat_window(pos)
+create_chat_window = function(pos)
 	local config = config_module.get_config()
 
 	state.chat_buf = api.nvim_create_buf(false, true)
@@ -680,7 +673,7 @@ local function create_chat_window(pos)
 end
 
 -- Creates and configures the user input window
-local function create_input_window(pos)
+create_input_window = function(pos)
 	local config = config_module.get_config()
 
 	state.input_buf = api.nvim_create_buf(false, true)
